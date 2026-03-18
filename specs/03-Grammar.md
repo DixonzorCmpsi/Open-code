@@ -38,7 +38,8 @@ constraint_block = { "@" ~ identifier ~ "(" ~ (string_lit | number_lit) ~ ")" }
 
 // Clients
 client_decl = { "client" ~ identifier ~ "{" ~ client_setting+ ~ "}" }
-client_setting = { identifier ~ "=" ~ (string_lit | number_lit) }
+client_setting_key = { "provider" | "model" | "retries" | "timeout" | "endpoint" | "api_key" }
+client_setting = { client_setting_key ~ "=" ~ expr }
 
 // Tools
 tool_decl = { "tool" ~ identifier ~ "(" ~ tool_args? ~ ")" ~ ("->" ~ data_type)? ~ block? }

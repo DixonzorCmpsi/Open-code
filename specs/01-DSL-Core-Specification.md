@@ -45,16 +45,20 @@ tool AnalyzeSentiment(text: string) -> float {
 To make `.claw` fully "Plug-and-Play", you first define a **Client**. A Client tells the compiler exactly which language model to connect to, what API key to use, and how to handle retries (similar to configuring a database connection).
 
 ```claw
+// Standard Managed Providers
 client FastOpenAI {
     provider = "openai"
     model = "gpt-4o-mini"
     retries = 3
-    timeout = 30s
 }
 
-client DeepResearchClaude {
-    provider = "anthropic"
-    model = "claude-3-5-sonnet"
+// True Model-Agnostic Execution: Connect directly to local SLMs, Ollama, 
+// vLLM, HuggingFace TGI, or ANY OpenAI-compatible endpoint.
+client LocalOrCustomLLM {
+    provider = "custom"
+    model = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+    endpoint = env("CUSTOM_LLM_URL") // e.g. http://localhost:11434/v1
+    api_key = env("CUSTOM_LLM_KEY")
 }
 ```
 

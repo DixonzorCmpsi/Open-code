@@ -35,7 +35,7 @@ Upon receiving this payload, the OpenClaw OS is responsible for:
 3. **Constrained Decoding (The Bouncer):** It enforces the TypeBox schemas defined by the DSL, ensuring the LLM token output perfectly matches the expected tool signature.
 4. **Schema Degradation Prevention:** The OS inspects the final JSON payload. If the Bouncer successfully forced the LLM into the schema but the LLM populated all fields with default empty strings (`""`) or zeroes because the schema was too complex for the model size, the OS throws a `SchemaDegradation` error. It triggers a retry block rather than passing functionally blank hallucinated parameters to the tool wrapper.
 5. **Physical Tool Execution:** When the LLM calls `Browser.search`, the OpenClaw OS spins up a headless Chromium instance, executes the search, and returns the raw DOM context.
-5. **State Checkpointing & Resumption:** The Gateway acts as an Event Sourcing engine. After every successfully completed AST node (e.g., inside a `.claw` loop), the OS commits the execution graph state to a persistent internal database. If the server crashes or restarts, it can resume the AST traversal exactly where it left off using the `session_id`.
+5. **State Checkpointing & Resumption:** The Gateway acts as an Event Sourcing engine. After every successfully completed AST node, the OS commits the execution graph state to a persistent internal database (by default, a local SQLite file in the `.openclaw/` directory). If the server crashes, it can resume the AST traversal exactly where it left off. In distributed production environments, this can be swapped to Redis via the `REDIS_URL` environment variable.
 
 ## 3. Sandboxing External Tools (Python/TypeScript)
 

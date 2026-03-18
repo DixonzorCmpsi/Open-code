@@ -25,7 +25,11 @@ Add the `clawc build` command directly into your `package.json` build scripts so
 
 ## 2. Deploying the OpenClaw OS Gateway
 
-The generated SDK makes WebSocket or REST calls out to the Heavy execution runtime. By default, during local development, your SDK spins up an ephemeral local gateway. For production, you must scale the OpenClaw OS persistently.
+The generated SDK makes WebSocket or REST calls out to the Heavy execution runtime. 
+
+By default, during local development, you do not need Authentication or a Redis Database. Your SDK simply spins up an ephemeral local gateway (or connects to `localhost:8080` unauthenticated) and uses a local SQLite file for checkpointing. 
+
+For production, you must scale the OpenClaw OS persistently and secure it.
 
 ### The Gateway Docker Container
 The OpenClaw OS requires Node.js, Playwright (Browser primitives), and secure sandboxing capabilities for external Custom Tools.
@@ -38,10 +42,14 @@ services:
   openclaw-os:
     image: openclaw/gateway-os:latest
     environment:
+      # Inject whatever endpoints your local models or APIs need
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # A Redis URL is required for the OS to commit Execution Graph Checkpoints
-      - REDIS_URL=redis://your-managed-db:6379 
+      - CUSTOM_LLM_URL=${CUSTOM_LLM_URL}
+      - CUSTOM_LLM_KEY=${CUSTOM_LLM_KEY}
+      
+      # Optional Production Security & Scaling
+      - GATEWAY_AUTH_KEY=${GATEWAY_AUTH_KEY} # Locks down the endpoint
+      - REDIS_URL=redis://your-managed-db:6379 # Swaps SQLite for Redis Checkpointing
     ports:
       - "8080:8080"
 ```
@@ -54,6 +62,7 @@ import { OpenClawClient } from "@openclaw/sdk"
 import { AnalyzeCompetitor } from "./generated/claw"
 
 // Point the client wrapper at your internal VPC Gateway
+// If hitting localhost, api_key is not needed.
 const prodGateway = new OpenClawClient({ 
     endpoint: "https://openclaw-os.internal.vpc.com",
     api_key: process.env.GATEWAY_AUTH_KEY 
