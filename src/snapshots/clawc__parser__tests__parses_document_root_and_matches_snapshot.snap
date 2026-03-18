@@ -1,5 +1,6 @@
 ---
 source: src/parser.rs
+assertion_line: 1370
 expression: document
 ---
 Document {
@@ -32,9 +33,12 @@ Document {
                     constraints: [
                         Constraint {
                             name: "min",
-                            value: IntLiteral(
-                                0,
-                            ),
+                            value: SpannedExpr {
+                                expr: IntLiteral(
+                                    0,
+                                ),
+                                span: 413..414,
+                            },
                             span: 408..428,
                         },
                     ],
@@ -54,24 +58,36 @@ Document {
             ),
             timeout_ms: None,
             endpoint: Some(
-                Call(
-                    "env",
-                    [
-                        StringLiteral(
-                            "OPENAI_BASE_URL",
-                        ),
-                    ],
-                ),
+                SpannedExpr {
+                    expr: Call(
+                        "env",
+                        [
+                            SpannedExpr {
+                                expr: StringLiteral(
+                                    "OPENAI_BASE_URL",
+                                ),
+                                span: 232..249,
+                            },
+                        ],
+                    ),
+                    span: 228..267,
+                },
             ),
             api_key: Some(
-                Call(
-                    "env",
-                    [
-                        StringLiteral(
-                            "OPENAI_API_KEY",
-                        ),
-                    ],
-                ),
+                SpannedExpr {
+                    expr: Call(
+                        "env",
+                        [
+                            SpannedExpr {
+                                expr: StringLiteral(
+                                    "OPENAI_API_KEY",
+                                ),
+                                span: 281..297,
+                            },
+                        ],
+                    ),
+                    span: 277..311,
+                },
             ),
             span: 79..326,
         },
@@ -159,28 +175,37 @@ Document {
                     LetDecl {
                         name: "report",
                         explicit_type: None,
-                        value: ExecuteRun {
-                            agent_name: "Researcher",
-                            kwargs: [
-                                (
-                                    "task",
-                                    Identifier(
-                                        "company",
+                        value: SpannedExpr {
+                            expr: ExecuteRun {
+                                agent_name: "Researcher",
+                                kwargs: [
+                                    (
+                                        "task",
+                                        SpannedExpr {
+                                            expr: Identifier(
+                                                "company",
+                                            ),
+                                            span: 1028..1035,
+                                        },
+                                    ),
+                                ],
+                                require_type: Some(
+                                    String(
+                                        1071..1077,
                                     ),
                                 ),
-                            ],
-                            require_type: Some(
-                                String(
-                                    1071..1077,
-                                ),
-                            ),
+                            },
+                            span: 978..1113,
                         },
                         span: 965..1113,
                     },
                     Return {
-                        value: Identifier(
-                            "report",
-                        ),
+                        value: SpannedExpr {
+                            expr: Identifier(
+                                "report",
+                            ),
+                            span: 1120..1126,
+                        },
                         span: 1113..1139,
                     },
                 ],
@@ -196,18 +221,26 @@ Document {
             body: Block {
                 statements: [
                     Expression(
-                        MethodCall(
-                            Identifier(
-                                "event",
+                        SpannedExpr {
+                            expr: MethodCall(
+                                SpannedExpr {
+                                    expr: Identifier(
+                                        "event",
+                                    ),
+                                    span: 1225..1230,
+                                },
+                                "reply",
+                                [
+                                    SpannedExpr {
+                                        expr: StringLiteral(
+                                            "done",
+                                        ),
+                                        span: 1237..1243,
+                                    },
+                                ],
                             ),
-                            "reply",
-                            [
-                                StringLiteral(
-                                    "done",
-                                ),
-                            ],
-                        ),
-                        1225..1257,
+                            span: 1225..1257,
+                        },
                     ),
                 ],
                 span: 1207..1258,
@@ -221,9 +254,12 @@ Document {
             body: Block {
                 statements: [
                     Return {
-                        value: StringLiteral(
-                            "ok",
-                        ),
+                        value: SpannedExpr {
+                            expr: StringLiteral(
+                                "ok",
+                            ),
+                            span: 1310..1314,
+                        },
                         span: 1303..1327,
                     },
                 ],
@@ -235,14 +271,19 @@ Document {
     mocks: [
         MockDecl {
             target_agent: "Researcher",
-            mock_input: StringLiteral(
-                "input",
-            ),
-            mock_output: StringLiteral(
-                "output",
-            ),
-            span: 1342..1387,
+            output: [
+                (
+                    "output",
+                    SpannedExpr {
+                        expr: StringLiteral(
+                            "mocked_output",
+                        ),
+                        span: 1384..1399,
+                    },
+                ),
+            ],
+            span: 1342..1422,
         },
     ],
-    span: 13..1387,
+    span: 13..1422,
 }

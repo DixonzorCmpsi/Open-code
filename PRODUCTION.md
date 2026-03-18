@@ -21,6 +21,13 @@ Add the `clawc build` command directly into your `package.json` build scripts so
 }
 ```
 
+For local iteration, the new workspace CLI can bootstrap and watch your project:
+
+```bash
+openclaw init
+openclaw build --watch
+```
+
 ---
 
 ## 2. Deploying the OpenClaw OS Gateway
@@ -48,8 +55,11 @@ services:
       - CUSTOM_LLM_KEY=${CUSTOM_LLM_KEY}
       
       # Optional Production Security & Scaling
-      - GATEWAY_AUTH_KEY=${GATEWAY_AUTH_KEY} # Locks down the endpoint
+      - OPENCLAW_GATEWAY_API_KEY=${OPENCLAW_GATEWAY_API_KEY} # Locks down the endpoint
       - REDIS_URL=redis://your-managed-db:6379 # Swaps SQLite for Redis Checkpointing
+      - OPENCLAW_SANDBOX_BACKEND=docker # Enforces containerized python()/typescript() tools
+      - OPENCLAW_PYTHON_SANDBOX_IMAGE=python:3.11-slim
+      - OPENCLAW_NODE_SANDBOX_IMAGE=node:22
     ports:
       - "8080:8080"
 ```
@@ -65,7 +75,7 @@ import { AnalyzeCompetitor } from "./generated/claw"
 // If hitting localhost, api_key is not needed.
 const prodGateway = new OpenClawClient({ 
     endpoint: "https://openclaw-os.internal.vpc.com",
-    api_key: process.env.GATEWAY_AUTH_KEY 
+    api_key: process.env.OPENCLAW_GATEWAY_API_KEY 
 })
 
 export async function POST(req: Request) {

@@ -1,0 +1,16 @@
+{"run_id":"1773841048-245568000","line":222,"new":{"module_name":"clawc__codegen__python__tests","snapshot_name":"emits_python_sdk_snapshot_for_valid_document","metadata":{"source":"src/codegen/python.rs","assertion_line":222,"expression":"output"},"snapshot":"from typing import List\n\nfrom openclaw_sdk import OpenClawClient\n\nfrom pydantic import BaseModel, Field\n\nOPENCLAW_AST_HASH = \"83c19abe25ff2c4c38e08ecbeaaa2fa349266df89745c4d93d4242fa102e41be\"\n\nclass SearchResult(BaseModel):\n    url: str = Field(pattern=r\"^https://\")\n    confidence_score: float = Field(ge=0)\n    snippet: str\n    tags: List[str]\n\nasync def analyze_competitors(\n    company: str,\n    client: OpenClawClient,\n    resume_session_id: str | None = None,\n) -> SearchResult:\n    result_dict = await client.execute_workflow(\n        workflow_name=\"AnalyzeCompetitors\",\n        arguments={\"company\": company},\n        ast_hash=OPENCLAW_AST_HASH,\n        resume_session_id=resume_session_id,\n    )\n\n    return SearchResult(**result_dict)"},"old":{"module_name":"clawc__codegen__python__tests","metadata":{},"snapshot":"from typing import List\n\nfrom openclaw_sdk import OpenClawClient\nfrom pydantic import BaseModel, Field\n\nOPENCLAW_AST_HASH = \"4f4499f91a07d86f2d8fdd6c34f5222702be6e0bfc5182b846e859edc6f66d39\"\n\nclass SearchResult(BaseModel):\n    url: str = Field(pattern=r\"^https://\")\n    confidence_score: float = Field(ge=0)\n    snippet: str\n    tags: List[str]\n\nasync def analyze_competitors(\n    company: str,\n    client: OpenClawClient,\n    resume_session_id: str | None = None,\n) -> SearchResult:\n    result_dict = await client.execute_workflow(\n        workflow_name=\"AnalyzeCompetitors\",\n        arguments={\"company\": company},\n        ast_hash=OPENCLAW_AST_HASH,\n        resume_session_id=resume_session_id,\n    )\n\n    return SearchResult(**result_dict)"}}
+{"run_id":"1773841079-332640000","line":224,"new":null,"old":null}
+{"run_id":"1773842748-266846000","line":224,"new":null,"old":null}
+{"run_id":"1773847963-170164000","line":224,"new":null,"old":null}
+{"run_id":"1773847981-790598000","line":224,"new":null,"old":null}
+{"run_id":"1773848225-166035000","line":224,"new":null,"old":null}
+{"run_id":"1773850192-801711000","line":224,"new":null,"old":null}
+{"run_id":"1773851185-452488000","line":224,"new":null,"old":null}
+{"run_id":"1773855522-206115000","line":224,"new":null,"old":null}
+{"run_id":"1773855780-690395000","line":224,"new":null,"old":null}
+{"run_id":"1773860237-670846000","line":224,"new":null,"old":null}
+{"run_id":"1773866043-32349000","line":224,"new":null,"old":null}
+{"run_id":"1773867482-648752000","line":228,"new":null,"old":null}
+{"run_id":"1773867502-230555000","line":228,"new":null,"old":null}
+{"run_id":"1773867535-925840000","line":228,"new":null,"old":null}
+{"run_id":"1773867550-61046000","line":228,"new":null,"old":null}

@@ -38,8 +38,17 @@ To ensure this tooling remains focused on deterministic execution, we must stric
 **Process & Best Practices:**
 1. The compiler reads `main.claw`.
 2. The Lexer breaks the raw text into tokens. **Crucially, the lexer must track the exact line and character "span"** of every token. This ensures that if the user makes a syntax error, `clawc` can point exactly to the broken line, mirroring the high-quality error reporting of the Rust compiler itself.
-3. The Parser groups these tokens into a strongly typed Abstract Syntax Tree (AST). 
+3. The Parser groups these tokens into a strongly typed Abstract Syntax Tree (AST).
 4. **Macro Utilization:** We will leverage Rust's procedural macros to reduce AST boilerplate (e.g., utilizing `astmaker`-style patterns) defining AST data nodes exhaustively.
+
+**Parser Safety (see `specs/12-Security-Model.md` Section 7):**
+- The parser MUST NOT use `.expect()` or `.unwrap()` on any code path reachable from user-provided `.claw` source text. Use `Result<T, CompilerError>` propagation exclusively.
+- `.expect()` is ONLY permitted with a `// SAFETY:` comment that mathematically proves the branch is unreachable.
+- Numeric literal parsing MUST handle overflow gracefully: integers exceeding `i64::MAX` or floats resolving to infinity/NaN produce `CompilerError::ParseError` with the source span.
+
+**Error Recovery:**
+- The compiler SHOULD collect multiple errors per compilation pass rather than halting on the first error. Maximum collection: 50 errors before bailing out.
+- Each error MUST include the file path, line, column, the source line text, and a caret (`^`) pointing to the exact span.
 
 **AST Example:**
 ```rust
@@ -86,7 +95,7 @@ Is translated internally in the compiler's memory to the exact syntax required b
 
 ## 4. Stage 4: Code Generation (Emitters)
 
-The final step is emitting the code the developer will actually use. The compiler uses a templating engine (like `askama` or `tera` in Rust) to write the SDK files.
+The final step is emitting the code the developer will actually use. The compiler uses `minijinja` (a Rust Jinja2 implementation) for template-driven SDK emission, or direct string building for targets where template syntax conflicts (e.g., BAML files use `{{ }}` which conflicts with Jinja delimiters).
 
 **Target 1: TypeScript (`clawc generate --target ts`)**
 Generates `generated/claw.ts`.
@@ -96,9 +105,24 @@ This file will contain TypeScript interfaces mapping to the `.claw` types, and a
 Generates `generated/claw.py`.
 Creates Pydantic models for the `.claw` types and asynchronous Python functions (using `asyncio` and `websockets`) to trigger the OpenClaw Gateway.
 
-## 5. Development Milestones
+## 5. Exit Code Mapping
 
-*   **Milestone 1:** Build the `pest` grammar file (`claw.pest`) and parse a basic `agent` block into Rust structs.
+The `clawc` binary MUST map errors to distinct exit codes:
+
+| Code | Meaning | Error Type |
+|------|---------|-----------|
+| 0 | Success | — |
+| 1 | Parse error | `CompilerError::ParseError` |
+| 2 | Semantic error | `CompilerError::UndefinedTool`, `TypeMismatch`, etc. |
+| 3 | Code generation error | Template rendering failure |
+| 4 | I/O error | File not found, permission denied |
+| 101 | Internal panic | Unreachable code reached (should never happen) |
+
+## 6. Development Milestones
+
+*   **Milestone 1:** Build `winnow` parser combinators and parse a basic `agent` block into Rust structs.
 *   **Milestone 2:** Implement the Semantic Analyzer to catch missing tools/types.
 *   **Milestone 3:** Build the TypeBox IR layer to convert `type` blocks into JSON Schemas.
 *   **Milestone 4:** Build the TypeScript emitter.
+*   **Milestone 5:** Build the Python emitter.
+*   **Milestone 6:** CLI orchestrator with `clap` (see `specs/14-CLI-Tooling.md`).

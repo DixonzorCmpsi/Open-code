@@ -33,9 +33,9 @@ Upon receiving this payload, the OpenClaw OS is responsible for:
 1. **Executing the Graph:** It reads the compiled `.claw` AST and begins traversing the `AnalyzeCompetitors` workflow.
 2. **LLM Orchestration:** It constructs the prompt package, injects the correct conversation history, and handles the connection to the specified `client` (OpenAI, Anthropic).
 3. **Constrained Decoding (The Bouncer):** It enforces the TypeBox schemas defined by the DSL, ensuring the LLM token output perfectly matches the expected tool signature.
-4. **Schema Degradation Prevention:** The OS inspects the final JSON payload. If the Bouncer successfully forced the LLM into the schema but the LLM populated all fields with default empty strings (`""`) or zeroes because the schema was too complex for the model size, the OS throws a `SchemaDegradation` error. It triggers a retry block rather than passing functionally blank hallucinated parameters to the tool wrapper.
-5. **Physical Tool Execution:** When the LLM calls `Browser.search`, the OpenClaw OS spins up a headless Chromium instance, executes the search, and returns the raw DOM context.
-5. **State Checkpointing & Resumption:** The Gateway acts as an Event Sourcing engine. After every successfully completed AST node, the OS commits the execution graph state to a persistent internal database (by default, a local SQLite file in the `.openclaw/` directory). If the server crashes, it can resume the AST traversal exactly where it left off. In distributed production environments, this can be swapped to Redis via the `REDIS_URL` environment variable.
+4. **Schema Degradation Prevention:** The OS inspects the final JSON payload from an LLM call ALONGSIDE the TypeBox schema. The `isSchemaDegraded(value, schema)` function receives BOTH the response AND the schema so it can determine zero-values per-type (0 for numbers, "" for strings, false for booleans). A response is **degraded** if and only if **ALL** leaf values are their type's zero-value simultaneously. Individual `0`, `false`, or `""` values are NOT degraded. Only when the entire response is uniformly blank/zero does the OS throw `SchemaDegradationError`.
+5. **Physical Tool Execution:** When the LLM calls `Browser.search`, the OpenClaw OS spins up a headless Chromium instance, executes the search, and returns the raw DOM context. See `specs/13-Visual-Intelligence.md` for screenshot and vision capabilities.
+6. **State Checkpointing & Resumption:** The Gateway acts as an Event Sourcing engine. After **every** successfully completed AST node execution — including `LetDecl`, `ForLoop`, `IfCond`, `ExecuteRun`, `Return`, `Expression`, `MethodCall`, and `BinaryOp` — the OS commits the execution state to a persistent checkpoint store. No statement type is exempt from checkpointing. By default, state is stored in a local SQLite file in the `.openclaw/` directory. In distributed production environments, this can be swapped to Redis via the `REDIS_URL` environment variable. If the server crashes, any gateway instance in the cluster can resume the AST traversal exactly where it left off using the same `session_id`.
 
 ## 3. Sandboxing External Tools (Python/TypeScript)
 
@@ -65,3 +65,106 @@ Once the `AnalyzeCompetitors` workflow natively reaches its `return` statement i
 ```
 
 The generated SDK takes this payload, validates it using Zod/Pydantic one last time (as specified in `06-CodeGen-SDK.md`), and returns it to the user's Node.js/FastAPI application.
+
+---
+
+## 5. `env()` Expression Resolution
+
+The `.claw` DSL uses `env("VARIABLE_NAME")` in client declarations to reference environment variables. This is a compile-time marker and a runtime lookup:
+
+- **Compile time:** The parser treats `env("...")` as a function call expression (`Expr::Call`). The compiler does NOT resolve the value — it serializes the expression as-is into `document.json`.
+- **Runtime (gateway):** When the traversal engine encounters a client with `endpoint: env("CUSTOM_LLM_URL")`, it resolves via `process.env["CUSTOM_LLM_URL"]`. If the variable is not set, the client initialization fails with a descriptive error: `"Environment variable CUSTOM_LLM_URL is not set (required by client LocalLLM)"`.
+- **BAML emission:** The BAML emitter converts `env("KEY")` to BAML's `env.KEY` syntax.
+
+---
+
+## 6. Security Contract
+
+All gateway security requirements are defined in `specs/12-Security-Model.md`. Key mandates:
+
+- **Request body size:** `MAX_REQUEST_BODY_SIZE = 1_048_576` bytes (1 MB). Reject oversized payloads before JSON parsing.
+- **Session IDs:** MUST use `crypto.randomUUID()`. NEVER use `Date.now()` or any timestamp-based generation.
+- **API key comparison:** MUST use `crypto.timingSafeEqual()`. NEVER use `===` or `!==` for secret comparison.
+- **Tool path resolution:** MUST use `fs.realpath()` and verify the resolved path remains within the workspace root. Symlinks must not escape the workspace boundary.
+
+---
+
+## 6. LLM API Contracts
+
+### OpenAI (Responses API)
+The gateway uses OpenAI's Responses API with structured output:
+```json
+{
+  "model": "gpt-5.4",
+  "input": [
+    { "role": "system", "content": "..." },
+    { "role": "user", "content": "..." }
+  ],
+  "text": {
+    "format": {
+      "type": "json_schema",
+      "name": "SearchResult",
+      "schema": { ... }
+    }
+  }
+}
+```
+
+### Anthropic (Messages API with Tool Use)
+The gateway MUST use Anthropic's `tools` parameter with `input_schema` for constrained output. The schema is placed in the **top-level request body** under `tools`, NOT inside `messages[].content`.
+
+```json
+{
+  "model": "claude-sonnet-4-5-20250514",
+  "max_tokens": 4096,
+  "system": "You are a deterministic OpenClaw execution agent.",
+  "tools": [
+    {
+      "name": "structured_output",
+      "description": "Return the result matching the required schema",
+      "input_schema": {
+        "type": "object",
+        "properties": { ... },
+        "required": [ ... ]
+      }
+    }
+  ],
+  "tool_choice": { "type": "tool", "name": "structured_output" },
+  "messages": [
+    { "role": "user", "content": "..." }
+  ]
+}
+```
+
+The response is extracted from `content[].type === "tool_use"` → `content[].input`.
+
+**NEVER** place `response_schema` inside the message content string — Anthropic's API ignores fields embedded in message content.
+
+---
+
+## 7. HTTP Hardening
+
+All HTTP responses MUST include security headers as defined in `specs/12-Security-Model.md` Section 3.2.
+
+The gateway MUST validate `Content-Type: application/json` on POST requests and return HTTP 415 (Unsupported Media Type) for non-JSON content types.
+
+---
+
+## 8. Graceful Shutdown
+
+On `SIGTERM` or `SIGINT`:
+1. Stop accepting new HTTP connections and WebSocket upgrades
+2. Wait up to 30 seconds for in-flight workflow executions to complete
+3. Checkpoint all running sessions with status `"interrupted"`
+4. Close the checkpoint store (flush SQLite WAL or disconnect Redis)
+5. Exit with code 0
+
+In-flight sessions that don't complete within the drain period are checkpointed at their current state and can be resumed later.
+
+---
+
+## 9. WebSocket Streaming
+
+The gateway supports real-time streaming of workflow execution events over WebSocket. See `specs/11-WebSocket-Protocol.md` for the full protocol specification.
+
+The WebSocket endpoint is at `/workflows/stream` and requires authentication per `specs/12-Security-Model.md`.

@@ -7,14 +7,14 @@ use winnow::token::{take_till, take_while};
 
 use crate::ast::{
     AgentDecl, AgentSetting, AgentSettings, BinaryOp, Block, ClientDecl, Constraint, DataType,
-    Document, Expr, ImportDecl, ListenerDecl, MockDecl, SettingValue, Statement, TestDecl,
-    ToolDecl, TypeDecl, TypeField, WorkflowDecl,
+    Document, ElseBranch, Expr, ImportDecl, ListenerDecl, MockDecl, SettingValue, SpannedExpr,
+    Statement, TestDecl, ToolDecl, TypeDecl, TypeField, WorkflowDecl,
 };
 use crate::errors::{CompilerError, CompilerResult};
 
 type Input<'a> = LocatingSlice<&'a str>;
 type PResult<T> = winnow::ModalResult<T, ContextError>;
-type ExecuteKwargs = Vec<(String, Expr)>;
+type ExecuteKwargs = Vec<(String, SpannedExpr)>;
 type ExecuteRunParts = (String, ExecuteKwargs, Option<DataType>);
 
 enum Declaration {
@@ -34,8 +34,8 @@ enum ClientSettingValue {
     Model(String),
     Retries(u32),
     Timeout(u32),
-    Endpoint(Expr),
-    ApiKey(Expr),
+    Endpoint(SpannedExpr),
+    ApiKey(SpannedExpr),
 }
 
 enum AgentProperty {
@@ -46,12 +46,16 @@ enum AgentProperty {
 }
 
 enum ExecuteArgument {
-    Kwarg(String, Expr),
+    Kwarg(String, SpannedExpr),
     RequireType(DataType),
 }
 
 pub fn parse_document(source: &str) -> CompilerResult<Document> {
     parse_complete(source, document)
+}
+
+pub fn parse(source: &str) -> CompilerResult<Document> {
+    parse_document(source)
 }
 
 #[cfg(test)]
@@ -232,7 +236,9 @@ fn constraint(input: &mut Input<'_>) -> PResult<Constraint> {
             (
                 '@',
                 simple_identifier_raw,
-                paren_delimited(alt((raw_string_expr, raw_number_expr))),
+                paren_delimited(alt((raw_string_expr, raw_number_expr)).with_span().map(
+                    |(expr, span)| SpannedExpr { expr, span },
+                )),
             )
                 .with_span()
                 .map(|((_, name, value), span)| Constraint {
@@ -568,21 +574,26 @@ fn test_decl(input: &mut Input<'_>) -> PResult<TestDecl> {
 }
 
 fn mock_decl(input: &mut Input<'_>) -> PResult<MockDecl> {
+    let mock_entry = (
+        lexeme(simple_identifier_raw),
+        lexeme(':'),
+        expr,
+        opt(lexeme(',')),
+    )
+        .map(|(name, _, value, _)| (name, value));
+
     let mut parser = preceded(
         trivia,
         terminated(
             (
                 "mock",
                 lexeme(simple_identifier_raw),
-                paren_delimited(expr),
-                lexeme("->"),
-                expr,
+                brace_delimited(repeat(1.., mock_entry)),
             )
                 .with_span()
-                .map(|((_, target_agent, mock_input, _, mock_output), span)| MockDecl {
+                .map(|((_, target_agent, output), span)| MockDecl {
                     target_agent,
-                    mock_input,
-                    mock_output,
+                    output,
                     span,
                 }),
             trivia,
@@ -652,14 +663,14 @@ fn for_stmt(input: &mut Input<'_>) -> PResult<Statement> {
                 paren_delimited((
                     lexeme(simple_identifier_raw),
                     "in",
-                    lexeme(simple_identifier_raw),
+                    expr,
                 )),
                 block,
             )
                 .with_span()
-                .map(|((_, (item_name, _, iterator_name), body), span)| Statement::ForLoop {
+                .map(|((_, (item_name, _, iterator), body), span)| Statement::ForLoop {
                     item_name,
-                    iterator_name,
+                    iterator,
                     body,
                     span,
                 }),
@@ -678,7 +689,7 @@ fn if_stmt(input: &mut Input<'_>) -> PResult<Statement> {
                 "if",
                 paren_delimited(expr),
                 block,
-                opt(preceded(lexeme("else"), block)),
+                opt(preceded(lexeme("else"), else_branch)),
             )
                 .with_span()
                 .map(|((_, condition, if_body, else_body), span)| Statement::IfCond {
@@ -692,6 +703,14 @@ fn if_stmt(input: &mut Input<'_>) -> PResult<Statement> {
     );
 
     parser.parse_next(input)
+}
+
+fn else_branch(input: &mut Input<'_>) -> PResult<ElseBranch> {
+    alt((
+        if_stmt.map(|stmt| ElseBranch::ElseIf(Box::new(stmt))),
+        block.map(ElseBranch::Else),
+    ))
+    .parse_next(input)
 }
 
 fn return_stmt(input: &mut Input<'_>) -> PResult<Statement> {
@@ -733,7 +752,12 @@ fn expression_stmt(input: &mut Input<'_>) -> PResult<Statement> {
         terminated(
             raw_expr
                 .with_span()
-                .map(|(expression, span)| Statement::Expression(expression, span)),
+                .map(|(expression, span)| {
+                    Statement::Expression(SpannedExpr {
+                        expr: expression,
+                        span,
+                    })
+                }),
             trivia,
         ),
     );
@@ -741,12 +765,16 @@ fn expression_stmt(input: &mut Input<'_>) -> PResult<Statement> {
     parser.parse_next(input)
 }
 
-fn expr(input: &mut Input<'_>) -> PResult<Expr> {
-    preceded(trivia, terminated(raw_expr, trivia)).parse_next(input)
+fn expr(input: &mut Input<'_>) -> PResult<SpannedExpr> {
+    preceded(
+        trivia,
+        terminated(raw_expr.with_span().map(|(e, span)| SpannedExpr { expr: e, span }), trivia),
+    )
+    .parse_next(input)
 }
 
 fn raw_expr(input: &mut Input<'_>) -> PResult<Expr> {
-    let left = alt((
+    let (left, left_span) = alt((
         raw_execute_run_expr,
         raw_array_expr,
         raw_string_expr,
@@ -754,19 +782,61 @@ fn raw_expr(input: &mut Input<'_>) -> PResult<Expr> {
         raw_bool_expr,
         identifier_or_call_expr,
     ))
+    .with_span()
     .parse_next(input)?;
 
+    let left_spanned = SpannedExpr {
+        expr: left,
+        span: left_span,
+    };
+
     let checkpoint = input.checkpoint();
-    if lexeme("==").parse_next(input).is_ok() {
+    let binary_op = if lexeme("==").parse_next(input).is_ok() {
+        Some(BinaryOp::Equal)
+    } else {
+        input.reset(&checkpoint);
+        let checkpoint = input.checkpoint();
+        if lexeme("!=").parse_next(input).is_ok() {
+            Some(BinaryOp::NotEqual)
+        } else {
+            input.reset(&checkpoint);
+            let checkpoint = input.checkpoint();
+            if lexeme("<=").parse_next(input).is_ok() {
+                Some(BinaryOp::LessEq)
+            } else {
+                input.reset(&checkpoint);
+                let checkpoint = input.checkpoint();
+                if lexeme(">=").parse_next(input).is_ok() {
+                    Some(BinaryOp::GreaterEq)
+                } else {
+                    input.reset(&checkpoint);
+                    let checkpoint = input.checkpoint();
+                    if lexeme("<").parse_next(input).is_ok() {
+                        Some(BinaryOp::LessThan)
+                    } else {
+                        input.reset(&checkpoint);
+                        let checkpoint = input.checkpoint();
+                        if lexeme(">").parse_next(input).is_ok() {
+                            Some(BinaryOp::GreaterThan)
+                        } else {
+                            input.reset(&checkpoint);
+                            None
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    if let Some(op) = binary_op {
         let right = cut_err(expr).parse_next(input)?;
         Ok(Expr::BinaryOp {
-            left: Box::new(left),
-            op: BinaryOp::Equal,
+            left: Box::new(left_spanned),
+            op,
             right: Box::new(right),
         })
     } else {
-        input.reset(&checkpoint);
-        Ok(left)
+        Ok(left_spanned.expr)
     }
 }
 
@@ -824,9 +894,12 @@ fn execute_argument(input: &mut Input<'_>) -> PResult<ExecuteArgument> {
 }
 
 fn raw_array_expr(input: &mut Input<'_>) -> PResult<Expr> {
-    bracket_delimited(terminated(separated(0.., expr, lexeme(',')), opt(lexeme(','))))
-        .map(Expr::ArrayLiteral)
-        .parse_next(input)
+    bracket_delimited(terminated(
+        separated(0.., expr, lexeme(',')),
+        opt(lexeme(',')),
+    ))
+    .map(Expr::ArrayLiteral)
+    .parse_next(input)
 }
 
 fn raw_string_expr(input: &mut Input<'_>) -> PResult<Expr> {
@@ -834,15 +907,18 @@ fn raw_string_expr(input: &mut Input<'_>) -> PResult<Expr> {
 }
 
 fn raw_number_expr(input: &mut Input<'_>) -> PResult<Expr> {
-    raw_number_literal
-        .map(|value| {
-            if value.contains('.') {
-                Expr::FloatLiteral(value.parse().expect("validated float literal"))
-            } else {
-                Expr::IntLiteral(value.parse().expect("validated integer literal"))
-            }
-        })
-        .parse_next(input)
+    let value = raw_number_literal.parse_next(input)?;
+    if value.contains('.') {
+        match value.parse::<f64>() {
+            Ok(parsed) if !parsed.is_infinite() && !parsed.is_nan() => Ok(Expr::FloatLiteral(parsed)),
+            _ => Err(winnow::error::ErrMode::Cut(winnow::error::ContextError::new())),
+        }
+    } else {
+        match value.parse::<i64>() {
+            Ok(parsed) => Ok(Expr::IntLiteral(parsed)),
+            Err(_) => Err(winnow::error::ErrMode::Cut(winnow::error::ContextError::new())),
+        }
+    }
 }
 
 fn raw_bool_expr(input: &mut Input<'_>) -> PResult<Expr> {
@@ -854,12 +930,18 @@ fn raw_bool_expr(input: &mut Input<'_>) -> PResult<Expr> {
 }
 
 fn identifier_or_call_expr(input: &mut Input<'_>) -> PResult<Expr> {
-    let mut current = simple_identifier_raw.parse_next(input).map(Expr::Identifier)?;
+    let (ident_expr, ident_span) = simple_identifier_raw
+        .with_span()
+        .map(|(name, span)| (Expr::Identifier(name), span))
+        .parse_next(input)?;
+
+    let mut current_expr = ident_expr;
+    let mut current_span = ident_span;
 
     let checkpoint = input.checkpoint();
     if let Ok(args) = call_args.parse_next(input) {
-        if let Expr::Identifier(name) = current {
-            current = Expr::Call(name, args);
+        if let Expr::Identifier(name) = current_expr {
+            current_expr = Expr::Call(name, args);
         }
     } else {
         input.reset(&checkpoint);
@@ -872,30 +954,43 @@ fn identifier_or_call_expr(input: &mut Input<'_>) -> PResult<Expr> {
             break;
         }
 
-        let segment = simple_identifier_raw.parse_next(input)?;
+        let (segment, seg_span) = simple_identifier_raw.with_span().parse_next(input)?;
         let checkpoint = input.checkpoint();
 
         if let Ok(args) = call_args.parse_next(input) {
-            current = Expr::MethodCall(Box::new(current), segment, args);
+            let base = SpannedExpr {
+                expr: current_expr,
+                span: current_span.clone(),
+            };
+            current_expr = Expr::MethodCall(Box::new(base), segment, args);
+            current_span = current_span.start..seg_span.end;
             continue;
         }
 
         input.reset(&checkpoint);
 
-        match current {
+        match current_expr {
             Expr::Identifier(mut name) => {
                 name.push('.');
                 name.push_str(&segment);
-                current = Expr::Identifier(name);
+                current_expr = Expr::Identifier(name);
+                current_span = current_span.start..seg_span.end;
             }
-            _ => break,
+            _ => {
+                let base = SpannedExpr {
+                    expr: current_expr,
+                    span: current_span.clone(),
+                };
+                current_expr = Expr::MemberAccess(Box::new(base), segment);
+                current_span = current_span.start..seg_span.end;
+            }
         }
     }
 
-    Ok(current)
+    Ok(current_expr)
 }
 
-fn call_args(input: &mut Input<'_>) -> PResult<Vec<Expr>> {
+fn call_args(input: &mut Input<'_>) -> PResult<Vec<SpannedExpr>> {
     paren_delimited(terminated(separated(0.., expr, lexeme(',')), opt(lexeme(','))))
         .parse_next(input)
 }
@@ -1187,7 +1282,7 @@ mod tests {
         assert_eq!(declaration.body.statements.len(), 3);
 
         match &declaration.body.statements[0] {
-            Statement::LetDecl { value, .. } => match value {
+            Statement::LetDecl { value, .. } => match &value.expr {
                 Expr::ExecuteRun {
                     agent_name,
                     require_type,
@@ -1202,7 +1297,7 @@ mod tests {
         }
 
         match &declaration.body.statements[1] {
-            Statement::IfCond { condition, .. } => match condition {
+            Statement::IfCond { condition, .. } => match &condition.expr {
                 Expr::BinaryOp { op, .. } => assert_eq!(op, &BinaryOp::Equal),
                 other => panic!("expected equality condition, found {other:?}"),
             },
@@ -1265,11 +1360,31 @@ mod tests {
                 return "ok"
             }
 
-            mock Researcher("input") -> "output"
+            mock Researcher {
+                output: "mocked_output"
+            }
         "#;
 
         let document = parse_document(source).unwrap();
 
         insta::assert_debug_snapshot!(document);
+    }
+
+    #[test]
+    fn rejects_overflow_integer_literal_without_panic() {
+        // Per specs/12-Security-Model.md §7.2: integers exceeding i64::MAX must produce
+        // CompilerError::ParseError, not panic via .expect()
+        let source = "type Overflow { value: int @min(99999999999999999999999) }";
+        let result = parse_document(source);
+        assert!(result.is_err(), "overflow integer must produce an error, not panic");
+    }
+
+    #[test]
+    fn rejects_overflow_float_literal_without_panic() {
+        // Per specs/12-Security-Model.md §7.2: floats resolving to infinity must produce
+        // CompilerError::ParseError, not panic
+        let source = r#"type Overflow { value: float @min(9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999.0) }"#;
+        let result = parse_document(source);
+        assert!(result.is_err(), "overflow float must produce an error, not panic");
     }
 }

@@ -16,14 +16,22 @@ impl Analyzer {
     }
 }
 
+pub fn analyze(document: &Document) -> CompilerResult<()> {
+    Analyzer::validate(document)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Analyzer;
     use crate::ast::{
-        AgentDecl, AgentSettings, Block, ClientDecl, DataType, Document, Expr, ImportDecl,
-        Statement, ToolDecl, TypeDecl, TypeField, WorkflowDecl,
+        AgentDecl, AgentSettings, Block, ClientDecl, DataType, Document, Expr, ImportDecl, Span,
+        SpannedExpr, Statement, ToolDecl, TypeDecl, TypeField, WorkflowDecl,
     };
     use crate::errors::CompilerError;
+
+    fn spanned(expr: Expr, span: Span) -> SpannedExpr {
+        SpannedExpr { expr, span }
+    }
 
     #[test]
     fn validates_a_well_formed_document() {
@@ -128,11 +136,14 @@ mod tests {
         document.workflows[0].body.statements = vec![Statement::LetDecl {
             name: "result".to_owned(),
             explicit_type: Some(custom_type("SearchResult", 200, 212)),
-            value: Expr::ExecuteRun {
-                agent_name: "MissingAgent".to_owned(),
-                kwargs: vec![("task".to_owned(), Expr::StringLiteral("find".to_owned()))],
-                require_type: Some(custom_type("SearchResult", 245, 257)),
-            },
+            value: spanned(
+                Expr::ExecuteRun {
+                    agent_name: "MissingAgent".to_owned(),
+                    kwargs: vec![("task".to_owned(), spanned(Expr::StringLiteral("find".to_owned()), 230..236))],
+                    require_type: Some(custom_type("SearchResult", 245, 257)),
+                },
+                180..258,
+            ),
             span: 180..258,
         }];
 
@@ -153,11 +164,14 @@ mod tests {
         document.workflows[0].body.statements = vec![Statement::LetDecl {
             name: "result".to_owned(),
             explicit_type: Some(custom_type("SearchResult", 200, 212)),
-            value: Expr::ExecuteRun {
-                agent_name: "Researcher".to_owned(),
-                kwargs: vec![("task".to_owned(), Expr::StringLiteral("find".to_owned()))],
-                require_type: Some(custom_type("MissingType", 245, 256)),
-            },
+            value: spanned(
+                Expr::ExecuteRun {
+                    agent_name: "Researcher".to_owned(),
+                    kwargs: vec![("task".to_owned(), spanned(Expr::StringLiteral("find".to_owned()), 230..236))],
+                    require_type: Some(custom_type("MissingType", 245, 256)),
+                },
+                180..257,
+            ),
             span: 180..257,
         }];
 
@@ -178,11 +192,14 @@ mod tests {
         document.workflows[0].body.statements = vec![Statement::LetDecl {
             name: "result".to_owned(),
             explicit_type: Some(DataType::String(200..206)),
-            value: Expr::ExecuteRun {
-                agent_name: "Researcher".to_owned(),
-                kwargs: vec![("task".to_owned(), Expr::StringLiteral("find".to_owned()))],
-                require_type: Some(custom_type("SearchResult", 245, 257)),
-            },
+            value: spanned(
+                Expr::ExecuteRun {
+                    agent_name: "Researcher".to_owned(),
+                    kwargs: vec![("task".to_owned(), spanned(Expr::StringLiteral("find".to_owned()), 230..236))],
+                    require_type: Some(custom_type("SearchResult", 245, 257)),
+                },
+                180..258,
+            ),
             span: 180..258,
         }];
 
@@ -207,7 +224,7 @@ mod tests {
         let mut document = valid_document();
         document.workflows[0].return_type = Some(DataType::Int(160..163));
         document.workflows[0].body.statements = vec![Statement::Return {
-            value: Expr::StringLiteral("oops".to_owned()),
+            value: spanned(Expr::StringLiteral("oops".to_owned()), 180..192),
             span: 180..192,
         }];
 
@@ -285,18 +302,27 @@ mod tests {
                         Statement::LetDecl {
                             name: "result".to_owned(),
                             explicit_type: Some(custom_type("SearchResult", 200, 212)),
-                            value: Expr::ExecuteRun {
-                                agent_name: "Researcher".to_owned(),
-                                kwargs: vec![(
-                                    "task".to_owned(),
-                                    Expr::StringLiteral("find".to_owned()),
-                                )],
-                                require_type: Some(custom_type("SearchResult", 245, 257)),
-                            },
+                            value: spanned(
+                                Expr::ExecuteRun {
+                                    agent_name: "Researcher".to_owned(),
+                                    kwargs: vec![(
+                                        "task".to_owned(),
+                                        spanned(
+                                            Expr::StringLiteral("find".to_owned()),
+                                            230..236,
+                                        ),
+                                    )],
+                                    require_type: Some(custom_type("SearchResult", 245, 257)),
+                                },
+                                180..258,
+                            ),
                             span: 180..258,
                         },
                         Statement::Return {
-                            value: Expr::Identifier("result".to_owned()),
+                            value: spanned(
+                                Expr::Identifier("result".to_owned()),
+                                259..272,
+                            ),
                             span: 259..272,
                         },
                     ],

@@ -2,6 +2,17 @@
 
 Once the `.claw` code is parsed into an AST and validated by the Semantic Analyzer, the `clawc` compiler moves to Phase 3: Code Generation. This phase outputs the `.claw` workflows into standard, strictly-typed SDK files for use in the developer's application.
 
+## 0. Terminology
+
+This spec distinguishes two separate components:
+
+| Term | Location | Author | Purpose |
+|------|----------|--------|---------|
+| **Generated SDK** | `generated/claw/index.ts` or `generated/claw/__init__.py` | Output of `clawc build` | Type-safe wrapper functions with Zod/Pydantic validation |
+| **Client Library** | `packages/openclaw-sdk/` or `python-sdk/openclaw_sdk/` | Hand-written | HTTP/WebSocket transport to the Gateway |
+
+The **Generated SDK** imports the **Client Library**. The developer imports the Generated SDK. The Client Library is a low-level transport layer and does NOT perform schema validation — that is the Generated SDK's responsibility.
+
 ## 1. Generation Engine
 
 The code generation will use `minijinja` (a Rust Jinja implementation). 
@@ -21,31 +32,34 @@ workflow AnalyzeCompetitors(company: string) -> SearchResult { ... }
 ```typescript
 import { OpenClawClient, AgentExecutionError } from "@openclaw/sdk";
 
-// 1. The emitted Types (using Zod or pure Interfaces)
-export interface SearchResult {
-    url: string;
-    confidence_score: number;
-    snippet: string;
-    tags: string[];
-}
+// 1. The emitted Zod schemas (runtime validation at the SDK boundary)
+import { z } from "zod";
+
+export const SearchResultSchema = z.object({
+    url: z.string(),
+    confidence_score: z.number(),
+    snippet: z.string(),
+    tags: z.array(z.string()),
+});
+export type SearchResult = z.infer<typeof SearchResultSchema>;
 
 // 2. The emitted Workflow Function
 export const AnalyzeCompetitors = async (
-    company: string, 
+    company: string,
     options: { client: OpenClawClient, resumeSessionId?: string }
 ): Promise<SearchResult> => {
-    
-    // The emitted function communicates with the Heavy Backend Gateway 
+
+    // The emitted function communicates with the Heavy Backend Gateway
     // to manage the actual agent execution loop or resume from a crash.
     const result = await options.client.executeWorkflow({
         workflowName: "AnalyzeCompetitors",
         arguments: { company },
         resumeSessionId: options.resumeSessionId
     });
-    
-    // 3. The Runtime Boundary validation (Zod validation of the Gateway result)
-    // Ensures the typescript types EXACTLY MATCH the gateway output.
-    return result as SearchResult;
+
+    // 3. Runtime boundary validation — Zod .parse() throws ZodError if
+    // the gateway response doesn't match the schema (no unsafe `as` casts).
+    return SearchResultSchema.parse(result);
 }
 ```
 

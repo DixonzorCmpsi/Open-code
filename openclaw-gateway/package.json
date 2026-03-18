@@ -1,0 +1,10 @@
+{
+  "name": "openclaw-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types src/server.ts",
+    "test": "node --experimental-strip-types --test src/*.test.ts src/engine/*.test.ts src/tools/*.test.ts"
+  }
+}

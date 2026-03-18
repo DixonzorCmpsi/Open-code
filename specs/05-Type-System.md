@@ -9,8 +9,10 @@ The `.claw` DSL is strongly typed. The compiler must prove that the entire orche
 The analyzer reads the `ast::Document` and performs three sequential passes:
 
 ### Pass 1: Declaration Resolution (Symbol Table)
-The compiler scans the AST and registers every `type`, `client`, `tool`, `agent`, and `workflow` into a global Symbol Table (`HashMap<String, SymbolInfo>`). 
+The compiler scans the AST and registers every `type`, `client`, `tool`, `agent`, and `workflow` into a global Symbol Table (`HashMap<String, SymbolInfo>`).
 * **Error Trigger:** If a user defines `agent Scraper` twice, fail with `CompilerError::DuplicateSymbol`.
+
+**Circular Type Detection:** While building the symbol table, the compiler MUST track type field reference chains. If `type A` contains a field of `type B`, and `type B` contains a field of `type A`, the compiler MUST fail with `CompilerError::CircularType { type_name, cycle_path }`. Recursive types are not supported in the `.claw` DSL because they cannot be lowered to finite JSON Schema.
 
 ### Pass 2: Reference Validation
 The compiler walks through the agent, tool, and workflow definitions to ensure all referenced symbols exist.
@@ -34,6 +36,12 @@ let data: SearchResult = execute Researcher.run(
 2. `SearchResult` is a valid `type` defined in the file.
 3. The left-hand assignment (`data: SearchResult`) perfectly matches the right-hand constraint (`require_type: SearchResult`).
 * **Error Trigger:** If the developer writes `let data: string = execute Researcher.run(require_type: SearchResult)`, the compiler fails instantly with `CompilerError::TypeMismatch`.
+
+**Exhaustive Return Analysis:** Every `workflow` body MUST have a `return` statement reachable on ALL control flow paths. If an `if` block returns but the `else` block does not (or is missing), the compiler MUST fail with `CompilerError::MissingReturn { workflow_name }`.
+
+**Nested Workflow Call Type Checking:** If a workflow calls another workflow via `let result: TypeA = InnerWorkflow(args)`, the compiler MUST verify that `InnerWorkflow`'s declared `return_type` matches `TypeA`. Error: `CompilerError::TypeMismatch`.
+
+**Binary Expression Type Checking:** Both operands of `==` must be the same type. Comparison operators (`<`, `>`, `<=`, `>=`) are only valid on numeric types (`int`, `float`). Error: `CompilerError::TypeMismatch`.
 
 ## 2. TypeBox Lowering
 

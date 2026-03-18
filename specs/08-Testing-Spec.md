@@ -2,16 +2,19 @@
 
 This document defines the strict testing methodology for the `.claw` compiler (`clawc`). We utilize a 100% Test-Driven Development (TDD) approach. 
 
-## 1. The TDD Golden Rule
+## 1. The TDD Golden Rule — 7-Step Cycle (NON-NEGOTIABLE)
 
-**Before any feature is implemented in Rust, a failing test MUST be written and committed first.**
+**Before any feature is implemented, a failing test MUST be written first.** This applies to Rust (`#[test]`), TypeScript (`node:test`), and Python (`pytest`).
 
-If you are tasked with building the "Agent Parser Combinator", your exact flow must be:
-1. Open `src/parser.rs` (or create it).
-2. Write the `#[cfg(test)]` module at the bottom.
-3. Write `#[test] fn test_parse_agent() { ... }` with explicit assertions on what the `winnow` combinator *should* output.
-4. Run `cargo test` and watch it fail to compile/run.
-5. Only then may you write the actual `parse_agent` Rust function to make the test pass.
+The exact workflow for every feature:
+
+1. **Read the spec.** If building a parser combinator, read `specs/03-Grammar.md`. If touching the gateway, read `specs/07-OpenClaw-OS.md`. If touching security, read `specs/12-Security-Model.md`.
+2. **Write the test.** Create the `#[test]` or `test()` block with explicit assertions on inputs and expected outputs. Include BOTH happy path and error path tests.
+3. **Run the test suite — confirm FAILURE (red).** The test must fail because the implementation doesn't exist yet. If it passes, you're testing something that already works or your test is wrong.
+4. **Write the MINIMUM code** to make the test pass. No extra features, no premature abstractions.
+5. **Run the test suite — confirm PASS (green).** All tests (not just the new one) must pass.
+6. **Refactor** for clarity, modularity, and performance. Ensure functions stay under 50 lines.
+7. **Run `cargo clippy` / `eslint` AND the full test suite again.** The refactored code must pass all static analysis and tests.
 
 ## 2. Test Structure per Phase
 
@@ -36,7 +39,36 @@ For code generation, the tests must take a valid, semantic-checked AST and invok
 * You must assert that the string output exactly matches the expected TypeScript or Python boilerplate strings defined in `specs/codegen.md`.
 * Use `insta` snapshot tests to verify the emitted code against approved golden files.
 
-## 3. General Rust Testing Rules
-* All tests for a specific module should live in that module's file (e.g., `src/semantic.rs` contains `mod tests`).
-* Integration tests (testing the CLI pipeline end-to-end from `.claw` file to `.ts` file) should live in a separate `tests/ integration_test.rs` directory.
-* Run tests with the highest level of strictness and warning flags enabled for `cargo clippy`.
+## 3. General Testing Rules
+* **Rust:** All unit tests live in `#[cfg(test)] mod tests` at the bottom of the module file. Integration tests live in `tests/integration.rs`.
+* **TypeScript:** All unit tests live in `*.test.ts` files adjacent to the module. Use `node:test` and `node:assert/strict`.
+* **Python:** Use `pytest` with type-hinted test functions.
+* Run tests with the highest level of strictness and warning flags enabled (`cargo clippy`, `eslint`).
+
+## 4. Security Testing Requirements
+
+The following security properties MUST have dedicated tests (see `specs/12-Security-Model.md`):
+
+| Property | Test Description |
+|----------|-----------------|
+| Timing-safe API key | Verify `crypto.timingSafeEqual` is used, not `===` |
+| Request body limit | Send >1MB body, assert HTTP 413 or connection reset |
+| Symlink rejection | Create symlink to outside workspace, assert tool resolution fails |
+| Malformed WebSocket | Send incomplete frame buffer, assert no crash |
+| Predictable session ID | Assert session IDs contain UUID format, not timestamps |
+| Exit code mapping | Run sandbox with OOM, assert exit code 137 maps to `SandboxOOMError` |
+
+## 5. Gateway Integration Test Patterns
+
+End-to-end gateway tests should:
+1. Load a real compiled `document.json` (produced by `clawc build`)
+2. Execute a workflow through the traversal engine with a mock or in-memory checkpoint store
+3. Validate the result against the expected schema
+4. Verify checkpoint persistence and idempotent replay (same session_id returns cached result)
+
+## 6. LLM Mock Patterns
+
+Tests MUST NOT call real LLM APIs. The gateway's LLM bridge falls back to a mock response generator when no API keys are configured. Tests should:
+- Verify mock responses conform to the TypeBox schema
+- Verify schema degradation detection on deliberately empty mock responses
+- Verify error handling when the LLM bridge returns non-JSON

@@ -47,5 +47,56 @@ In this final audit, two LLM agent personas (The Generator/Maker vs. The Discrim
 
 ---
 
+## 4. Post-Implementation Adversarial Audit
+
+After the initial implementation of Phases 1-5, a second adversarial audit was conducted against the running codebase. The following vulnerabilities were found and resolved via spec updates:
+
+| # | Vulnerability | Affected Code | Resolution Spec |
+|---|--------------|---------------|-----------------|
+| 1 | Timing-unsafe API key comparison (`!==`) | `auth.ts:39` | `specs/12-Security-Model.md` §2.1 |
+| 2 | Unbounded HTTP request body (memory DoS) | `server.ts:readBody()` | `specs/12-Security-Model.md` §3.1 |
+| 3 | Hand-rolled WebSocket crashes on incomplete frames | `ws.ts:parseWebSocketFrame()` | `specs/11-WebSocket-Protocol.md` §3.1 |
+| 4 | WebSocket close frame race condition | `ws.ts:closeWebSocket()` | `specs/11-WebSocket-Protocol.md` §3.3 |
+| 5 | Parser `.expect()` panics on malicious numeric input | `parser.rs:844-846` | `specs/12-Security-Model.md` §7.1 |
+| 6 | Anthropic API schema in wrong position | `llm.ts:callAnthropic()` | `specs/07-OpenClaw-OS.md` §6 |
+| 7 | Schema degradation false positives on `0` and `false` | `schema.ts:isSchemaDegraded()` | `specs/07-OpenClaw-OS.md` §2.4 |
+| 8 | No Zod/Pydantic in client library SDKs | `index.js`, `__init__.py` | `specs/06-CodeGen-SDK.md` §0 |
+| 9 | Phantom X-OpenClaw-Protocol header requirement | `AGENT.md` | `specs/11-WebSocket-Protocol.md` §9 (REMOVED) |
+| 10 | Missing checkpoints for MethodCall/BinaryOp | `traversal.ts:238-244` | `specs/07-OpenClaw-OS.md` §2.6 |
+| 11 | Predictable session IDs (`Date.now()`) | Both SDKs | `specs/12-Security-Model.md` §4 |
+| 12 | Symlink bypass in tool path resolution | `runtime.ts:resolveExistingPath()` | `specs/12-Security-Model.md` §5 |
+| 13 | No HTTP security headers | `server.ts:writeJson()` | `specs/12-Security-Model.md` §3.2 |
+| 14 | No request body size limit | `server.ts:readBody()` | `specs/12-Security-Model.md` §3.1 |
+| 15 | Missing circular type detection | `semantic/` | `specs/05-Type-System.md` §1 Pass 1 |
+| 16 | Missing exhaustive return analysis | `semantic/` | `specs/05-Type-System.md` §1 Pass 3 |
+| 17 | WebSocket streaming protocol unspecified | `ws.ts`, `server.ts` | `specs/11-WebSocket-Protocol.md` (NEW) |
+| 18 | Visual intelligence system unspecified | `vision.ts`, `browser.ts` | `specs/13-Visual-Intelligence.md` (NEW) |
+| 19 | CLI tooling unspecified | `openclaw.rs` | `specs/14-CLI-Tooling.md` (NEW) |
+| 20 | No graceful shutdown | `server.ts` | `specs/07-OpenClaw-OS.md` §8 |
+| 21 | No exit code mapping | `clawc` binary | `specs/02-Compiler-Architecture.md` §5 |
+| 22 | Missing error recovery (halt on first error) | `clawc` parser | `specs/02-Compiler-Architecture.md` §2 |
+| 23 | No compiler recursion depth limit | `parser.rs` | `specs/12-Security-Model.md` §7.3 |
+
+## 5. Phase 6 Cross-Spec Audit (Round 3)
+
+A third-party adversarial audit reviewed all 18 specs + AGENT.md and found 18 issues. Validated findings and resolutions:
+
+| ID | Finding | Validated? | Resolution |
+|----|---------|-----------|------------|
+| C1 | X-OpenClaw-Protocol phantom in AGENT.md | Already fixed | AGENT.md updated to Sec-WebSocket-Protocol |
+| C2 | Expr has no Span fields | Correct (by design) | Phase 7 — add SpannedExpr wrapper. Documented in Spec 15 Non-Goals. |
+| C4 | listener/import have no execution spec | Correct | Spec 03 updated — marked "Phase 7, parsed but not executed" |
+| C5 | Graceful shutdown TypeScript syntax error | Correct | Spec 16 fixed — proper arrow function braces |
+| C6 | Nested session IDs use timestamps in Spec 01 | Correct | Spec 01 updated to `crypto.randomUUID()` |
+| H1 | env() has no resolution spec | Correct | Spec 07 §5 added — compile-time marker, runtime `process.env` lookup |
+| H2 | openclaw test missing from Spec 14 | Correct | Spec 14 §1 updated with test command |
+| H3 | for loop iterator is identifier-only | Correct | Spec 15 Non-Goals — expression iterators are Phase 7 |
+| H4 | No else if chaining | Correct | Spec 15 Non-Goals — else if is Phase 7 |
+| H5 | resolve_agents silently ignores missing parent | Correct | Spec 18 updated — uses SAFETY-commented expect after Pass 2 |
+| H7 | Schema degradation needs TypeBox schema | Correct | Spec 07 updated — `isSchemaDegraded(value, schema)` signature |
+| M3 | fullPage true vs false conflict | Correct | Spec 16 commented — false for stability, true for audit screenshots |
+| M4 | Dotted tool references undefined | Correct | Known limitation — dotted tools resolved at gateway runtime only |
+| M5 | Import module resolution missing | Correct | Spec 03 updated — imports are syntactic sugar, Phase 7 |
+
 ### Audit Conclusion
-The core abstract syntax and type constraints survived the GAN audit. The identified flaws pertained entirely to the physical interactions of the OS sandbox and Developer CI/CD pipelines. These findings will be injected directly into the Startup and Production guides.
+The core abstract syntax and type constraints survived all three GAN audits. The initial audit (Attacks 1-3) exposed OS sandbox and CI/CD pipeline issues. The post-implementation audit (Findings 1-23) exposed security vulnerabilities. The Phase 6 cross-spec audit (14 confirmed findings) exposed spec drift, missing semantics, and boundary gaps. All findings have been resolved via spec updates.

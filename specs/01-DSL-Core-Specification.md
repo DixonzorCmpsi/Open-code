@@ -296,7 +296,31 @@ type VerifiedUser {
 }
 ```
 
-## 9. API Integration (The Batteries-Included Experience)
+## 9. Nested Workflow Calls
+
+Workflows can invoke other workflows directly as function calls:
+
+```claw
+workflow Inner(input: string) -> Label {
+    let label: Label = execute Labeler.run(task: input, require_type: Label)
+    return label
+}
+
+workflow Outer(name: string) -> Label {
+    let result: Label = Inner(name)  // Direct workflow call
+    return result
+}
+```
+
+**Rules:**
+- The compiler MUST verify that `Inner`'s declared `return_type` matches the assignment type (`Label`).
+- Recursion depth is bounded at **10 levels** by default. The gateway enforces this at runtime.
+- Each nested call gets its own `session_id` scoped under the parent: `{parent_session_id}:{workflow_name}:{crypto.randomUUID()}` (per `specs/12-Security-Model.md` — NEVER use timestamps for IDs).
+- Nested calls are checkpointed independently and can be resumed separately.
+
+---
+
+## 10. API Integration (The Batteries-Included Experience)
 
 While the `.claw` language has powerful constructs, its primary purpose is to be **embedded in your existing software**. The core logic of the language is designed to feel exactly like calling a standard function, identical to the BAML developer experience.
 

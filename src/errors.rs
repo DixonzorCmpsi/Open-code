@@ -37,7 +37,17 @@ pub enum CompilerError {
         span: Span,
     },
 
-    #[error("failed to read `{path}`: {source}")]
+    #[error("unsupported constraint `{name}` at {span:?}")]
+    UnsupportedConstraint { name: String, span: Span },
+
+    #[error("invalid constraint `{name}` at {span:?}: expected {expected}")]
+    InvalidConstraintValue {
+        name: String,
+        expected: String,
+        span: Span,
+    },
+
+    #[error("failed to access `{path}`: {source}")]
     Io {
         path: PathBuf,
         #[source]
@@ -53,7 +63,9 @@ impl CompilerError {
             | Self::UndefinedAgent { span, .. }
             | Self::UndefinedClient { span, .. }
             | Self::UndefinedType { span, .. }
-            | Self::TypeMismatch { span, .. } => Some(span),
+            | Self::TypeMismatch { span, .. }
+            | Self::UnsupportedConstraint { span, .. }
+            | Self::InvalidConstraintValue { span, .. } => Some(span),
             Self::DuplicateSymbol { second_span, .. } => Some(second_span),
             Self::Io { .. } => None,
         }

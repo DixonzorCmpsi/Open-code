@@ -1,11 +1,13 @@
 use std::ops::Range;
 
+use serde::Serialize;
+
 // A Span represents the byte range of a token in the original source string.
 pub type Span = Range<usize>;
 
 // --- The Root Document ---
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Document {
     pub imports: Vec<ImportDecl>,
     pub types: Vec<TypeDecl>,
@@ -21,7 +23,7 @@ pub struct Document {
 
 // --- Data Types ---
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum DataType {
     String(Span),
     Int(Span),
@@ -46,14 +48,14 @@ impl DataType {
 
 // --- High-Level Declarations ---
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TypeDecl {
     pub name: String,
     pub fields: Vec<TypeField>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TypeField {
     pub name: String,
     pub data_type: DataType,
@@ -61,26 +63,26 @@ pub struct TypeField {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Constraint {
     pub name: String,
-    pub value: Expr,
+    pub value: SpannedExpr,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ClientDecl {
     pub name: String,
     pub provider: String,
     pub model: String,
     pub retries: Option<u32>,
     pub timeout_ms: Option<u32>,
-    pub endpoint: Option<Expr>,
-    pub api_key: Option<Expr>,
+    pub endpoint: Option<SpannedExpr>,
+    pub api_key: Option<SpannedExpr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolDecl {
     pub name: String,
     pub arguments: Vec<TypeField>,
@@ -89,7 +91,7 @@ pub struct ToolDecl {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentDecl {
     pub name: String,
     pub extends: Option<String>,
@@ -102,7 +104,7 @@ pub struct AgentDecl {
 
 // --- Execution Workflows ---
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WorkflowDecl {
     pub name: String,
     pub arguments: Vec<TypeField>,
@@ -111,101 +113,138 @@ pub struct WorkflowDecl {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TestDecl {
     pub name: String,
     pub body: Block,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MockDecl {
     pub target_agent: String,
-    pub mock_input: Expr,
-    pub mock_output: Expr,
+    pub output: Vec<(String, SpannedExpr)>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Block {
     pub statements: Vec<Statement>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// --- Else-If Chaining ---
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum ElseBranch {
+    Else(Block),
+    ElseIf(Box<Statement>), // Must be Statement::IfCond
+}
+
+// --- Statements ---
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Statement {
     LetDecl {
         name: String,
         explicit_type: Option<DataType>,
-        value: Expr,
+        value: SpannedExpr,
         span: Span,
     },
     ForLoop {
         item_name: String,
-        iterator_name: String,
+        iterator: SpannedExpr, // Any expression (identifier, member access, call, etc.)
         body: Block,
         span: Span,
     },
     IfCond {
-        condition: Expr,
+        condition: SpannedExpr,
         if_body: Block,
-        else_body: Option<Block>,
+        else_body: Option<ElseBranch>,
         span: Span,
     },
     ExecuteRun {
         agent_name: String,
-        kwargs: Vec<(String, Expr)>,
+        kwargs: Vec<(String, SpannedExpr)>,
         require_type: Option<DataType>,
         span: Span,
     },
     Return {
-        value: Expr,
+        value: SpannedExpr,
         span: Span,
     },
-    Expression(Expr, Span),
+    TryCatch {
+        try_body: Block,
+        catch_name: String,
+        catch_type: DataType,
+        catch_body: Block,
+        span: Span,
+    },
+    Assert {
+        condition: SpannedExpr,
+        message: Option<String>,
+        span: Span,
+    },
+    Continue(Span),
+    Break(Span),
+    Expression(SpannedExpr),
 }
 
 // --- Expressions (The lowest level) ---
 
-#[derive(Debug, Clone, PartialEq)]
+/// SpannedExpr wraps every expression with its source Span, satisfying §1's
+/// "every single node must retain its Span" guarantee.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SpannedExpr {
+    pub expr: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Expr {
     StringLiteral(String),
     IntLiteral(i64),
     FloatLiteral(f64),
     BoolLiteral(bool),
     Identifier(String),
-    ArrayLiteral(Vec<Expr>),
-    Call(String, Vec<Expr>),
-    MethodCall(Box<Expr>, String, Vec<Expr>),
+    ArrayLiteral(Vec<SpannedExpr>),
+    Call(String, Vec<SpannedExpr>),
+    MemberAccess(Box<SpannedExpr>, String),
+    MethodCall(Box<SpannedExpr>, String, Vec<SpannedExpr>),
     ExecuteRun {
         agent_name: String,
-        kwargs: Vec<(String, Expr)>,
+        kwargs: Vec<(String, SpannedExpr)>,
         require_type: Option<DataType>,
     },
     BinaryOp {
-        left: Box<Expr>,
+        left: Box<SpannedExpr>,
         op: BinaryOp,
-        right: Box<Expr>,
+        right: Box<SpannedExpr>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum BinaryOp {
     Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessEq,
+    GreaterEq,
 }
 
 // The AST spec references these nodes but does not spell them out inline.
 // We define them here so the tree stays closed and every declaration remains
 // span-carrying from the first compiler milestone onward.
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ImportDecl {
     pub names: Vec<String>,
     pub source: String,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ListenerDecl {
     pub name: String,
     pub event_type: String,
@@ -213,20 +252,20 @@ pub struct ListenerDecl {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentSettings {
     pub entries: Vec<AgentSetting>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentSetting {
     pub name: String,
     pub value: SettingValue,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum SettingValue {
     Int(i64),
     Float(f64),
@@ -235,7 +274,14 @@ pub enum SettingValue {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentDecl, AgentSettings, Block, DataType, Document, Expr, Span, Statement};
+    use super::{
+        AgentDecl, AgentSettings, Block, DataType, Document, Expr, Span, SpannedExpr, Statement,
+    };
+
+    /// Helper to wrap an Expr with a Span.
+    fn spanned(expr: Expr, span: Span) -> SpannedExpr {
+        SpannedExpr { expr, span }
+    }
 
     #[test]
     fn document_tracks_spans_and_nested_nodes() {
@@ -267,7 +313,7 @@ mod tests {
 
         let workflow_body = Block {
             statements: vec![Statement::Return {
-                value: Expr::Identifier("result".to_owned()),
+                value: spanned(Expr::Identifier("result".to_owned()), span.clone()),
                 span: span.clone(),
             }],
             span: span.clone(),
@@ -281,5 +327,74 @@ mod tests {
         );
         assert_eq!(DataType::String(0..6).span(), &(0..6));
         assert_eq!(workflow_body.statements.len(), 1);
+    }
+
+    #[test]
+    fn spanned_expr_carries_span() {
+        let se = spanned(Expr::IntLiteral(42), 10..12);
+        assert_eq!(se.span, (10..12));
+        assert_eq!(se.expr, Expr::IntLiteral(42));
+    }
+
+    #[test]
+    fn else_if_chaining() {
+        use super::ElseBranch;
+        let span: Span = 0..50;
+
+        let inner_if = Statement::IfCond {
+            condition: spanned(Expr::BoolLiteral(true), span.clone()),
+            if_body: Block {
+                statements: vec![],
+                span: span.clone(),
+            },
+            else_body: None,
+            span: span.clone(),
+        };
+
+        let outer = Statement::IfCond {
+            condition: spanned(Expr::BoolLiteral(false), span.clone()),
+            if_body: Block {
+                statements: vec![],
+                span: span.clone(),
+            },
+            else_body: Some(ElseBranch::ElseIf(Box::new(inner_if))),
+            span: span.clone(),
+        };
+
+        if let Statement::IfCond { else_body, .. } = &outer {
+            assert!(matches!(else_body, Some(ElseBranch::ElseIf(_))));
+        } else {
+            panic!("Expected IfCond");
+        }
+    }
+
+    #[test]
+    fn for_loop_with_expr_iterator() {
+        let span: Span = 0..30;
+
+        // for (tag in result.tags) { ... }
+        let iterator = spanned(
+            Expr::MemberAccess(
+                Box::new(spanned(Expr::Identifier("result".to_owned()), 15..21)),
+                "tags".to_owned(),
+            ),
+            15..26,
+        );
+
+        let for_loop = Statement::ForLoop {
+            item_name: "tag".to_owned(),
+            iterator,
+            body: Block {
+                statements: vec![],
+                span: span.clone(),
+            },
+            span: span.clone(),
+        };
+
+        if let Statement::ForLoop { iterator, .. } = &for_loop {
+            assert!(matches!(iterator.expr, Expr::MemberAccess(_, _)));
+        } else {
+            panic!("Expected ForLoop");
+        }
     }
 }

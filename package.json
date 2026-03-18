@@ -1,0 +1,16 @@
+{
+  "name": "openclaw-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gateway": "node --experimental-strip-types openclaw-gateway/src/server.ts",
+    "test:gateway": "node --experimental-strip-types --test openclaw-gateway/src/*.test.ts openclaw-gateway/src/engine/*.test.ts openclaw-gateway/src/tools/*.test.ts",
+    "test:sdk": "node --test packages/openclaw-sdk/index.test.mjs",
+    "smoke:ts": "node --experimental-strip-types scripts/ts-smoke-test.mjs"
+  },
+  "dependencies": {
+    "@openclaw/sdk": "file:packages/openclaw-sdk",
+    "redis": "^5.11.0",
+    "zod": "file:packages/zod"
+  }
+}

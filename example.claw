@@ -1,0 +1,34 @@
+client FastOpenAI {
+    provider = "openai"
+    model = "gpt-5.4"
+    retries = 3
+}
+
+type SearchResult {
+    url: string @regex("^https://")
+    confidence_score: float @min(0)
+    snippet: string
+    tags: list<string>
+}
+
+tool WebSearch(query: string) -> SearchResult {
+    invoke: module("scripts.search").function("run")
+}
+
+agent Researcher {
+    client = FastOpenAI
+    system_prompt = "Stay deterministic."
+    tools = [WebSearch]
+    settings = {
+        max_steps: 5,
+        temperature: 0.1
+    }
+}
+
+workflow AnalyzeCompetitors(company: string) -> SearchResult {
+    let report: SearchResult = execute Researcher.run(
+        task: company,
+        require_type: SearchResult,
+    )
+    return report
+}

@@ -62,7 +62,7 @@ pub struct TypeField {
 #[derive(Debug, Clone)]
 pub struct Constraint {
     pub name: String,
-    pub value: Expr,
+    pub value: SpannedExpr,
     pub span: Span,
 }
 
@@ -73,6 +73,8 @@ pub struct ClientDecl {
     pub model: String,
     pub retries: Option<u32>,
     pub timeout_ms: Option<u32>,
+    pub endpoint: Option<SpannedExpr>,  // Custom LLM endpoint, e.g., env("CUSTOM_LLM_URL")
+    pub api_key: Option<SpannedExpr>,   // API key source, e.g., env("CUSTOM_LLM_KEY")
     pub span: Span,
 }
 
@@ -92,8 +94,28 @@ pub struct AgentDecl {
     pub client: Option<String>,
     pub system_prompt: Option<String>,
     pub tools: Vec<String>,
-    pub settings: AgentSettings, // max_steps, temperature, etc.
+    pub settings: AgentSettings,
     pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentSettings {
+    pub entries: Vec<AgentSetting>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentSetting {
+    pub name: String,           // e.g., "max_steps", "temperature"
+    pub value: SettingValue,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum SettingValue {
+    Int(i64),
+    Float(f64),
+    Boolean(bool),
 }
 
 // --- Execution Workflows ---
@@ -117,8 +139,7 @@ pub struct TestDecl {
 #[derive(Debug, Clone)]
 pub struct MockDecl {
     pub target_agent: String,
-    pub mock_input: Expr,
-    pub mock_output: Expr,
+    pub output: Vec<(String, SpannedExpr)>,  // Key-value object literal (Phase 6C migration)
     pub span: Span,
 }
 
@@ -133,35 +154,70 @@ pub enum Statement {
     LetDecl {
         name: String,
         explicit_type: Option<DataType>,
-        value: Expr,
+        value: SpannedExpr,
         span: Span,
     },
     ForLoop {
         item_name: String,
-        iterator_name: String,
+        iterator: SpannedExpr,  // Any expression (identifier, member access, call, etc.)
         body: Block,
         span: Span,
     },
     IfCond {
-        condition: Expr,
+        condition: SpannedExpr,
         if_body: Block,
-        else_body: Option<Block>,
+        else_body: Option<ElseBranch>,  // Supports else-if chaining
         span: Span,
     },
     ExecuteRun {
         agent_name: String,
-        kwargs: Vec<(String, Expr)>,
+        kwargs: Vec<(String, SpannedExpr)>,
         require_type: Option<DataType>,
         span: Span,
     },
     Return {
-        value: Expr,
+        value: SpannedExpr,
         span: Span,
     },
-    Expression(Expr, Span),
+    TryCatch {
+        try_body: Block,
+        catch_name: String,
+        catch_type: DataType,  // Required — OpenClaw has no untyped bindings
+        catch_body: Block,
+        span: Span,
+    },
+    Assert {
+        condition: SpannedExpr,
+        message: Option<String>,
+        span: Span,
+    },
+    Continue(Span),
+    Break(Span),
+    Expression(SpannedExpr),
+}
+
+// --- Else-If Chaining ---
+
+// ElseBranch supports both plain `else { }` and chained `else if (...) { } else { }`.
+// `else if` is syntactic sugar — the parser desugars it into nested IfCond nodes:
+//   if (a) { X } else if (b) { Y } else { Z }
+//   → IfCond { condition: a, if_body: X, else_body: ElseIf(IfCond { condition: b, ..., else_body: Else(Z) }) }
+#[derive(Debug, Clone)]
+pub enum ElseBranch {
+    Else(Block),
+    ElseIf(Box<Statement>),  // Must be Statement::IfCond
 }
 
 // --- Expressions (The lowest level) ---
+
+// SpannedExpr wraps every expression with its source Span, satisfying §1's
+// "every single node must retain its Span" guarantee. All references to Expr
+// in Statement variants, kwargs, etc. MUST use SpannedExpr.
+#[derive(Debug, Clone)]
+pub struct SpannedExpr {
+    pub expr: Expr,
+    pub span: Span,
+}
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -170,8 +226,30 @@ pub enum Expr {
     FloatLiteral(f64),
     BoolLiteral(bool),
     Identifier(String),
-    ArrayLiteral(Vec<Expr>),
-    MethodCall(Box<Expr>, String, Vec<Expr>), // e.g., reports.append(report)
+    ArrayLiteral(Vec<SpannedExpr>),
+    Call(String, Vec<SpannedExpr>),                    // Nested workflow call: InnerWorkflow(args)
+    MemberAccess(Box<SpannedExpr>, String),           // Field access: result.tags
+    MethodCall(Box<SpannedExpr>, String, Vec<SpannedExpr>),  // e.g., reports.append(report)
+    BinaryOp {
+        left: Box<SpannedExpr>,
+        op: BinaryOp,
+        right: Box<SpannedExpr>,
+    },
+    ExecuteRun {                               // Inline agent execution as expression
+        agent_name: String,
+        kwargs: Vec<(String, SpannedExpr)>,
+        require_type: Option<DataType>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinaryOp {
+    Equal,      // ==
+    NotEqual,   // !=
+    LessThan,   // <
+    GreaterThan,// >
+    LessEq,     // <=
+    GreaterEq,  // >=
 }
 ```
 
