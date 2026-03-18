@@ -1,0 +1,248 @@
+---
+source: src/parser.rs
+expression: document
+---
+Document {
+    imports: [
+        ImportDecl {
+            names: [
+                "WebScraper",
+            ],
+            source: "@openclaw/tools.browser",
+            span: 13..79,
+        },
+    ],
+    types: [
+        TypeDecl {
+            name: "SearchResult",
+            fields: [
+                TypeField {
+                    name: "url",
+                    data_type: String(
+                        367..373,
+                    ),
+                    constraints: [],
+                    span: 362..373,
+                },
+                TypeField {
+                    name: "confidence",
+                    data_type: Float(
+                        402..407,
+                    ),
+                    constraints: [
+                        Constraint {
+                            name: "min",
+                            value: IntLiteral(
+                                0,
+                            ),
+                            span: 408..428,
+                        },
+                    ],
+                    span: 390..428,
+                },
+            ],
+            span: 326..443,
+        },
+    ],
+    clients: [
+        ClientDecl {
+            name: "FastOpenAI",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            retries: Some(
+                3,
+            ),
+            timeout_ms: None,
+            endpoint: Some(
+                Call(
+                    "env",
+                    [
+                        StringLiteral(
+                            "OPENAI_BASE_URL",
+                        ),
+                    ],
+                ),
+            ),
+            api_key: Some(
+                Call(
+                    "env",
+                    [
+                        StringLiteral(
+                            "OPENAI_API_KEY",
+                        ),
+                    ],
+                ),
+            ),
+            span: 79..326,
+        },
+    ],
+    tools: [
+        ToolDecl {
+            name: "AnalyzeSentiment",
+            arguments: [
+                TypeField {
+                    name: "text",
+                    data_type: String(
+                        471..477,
+                    ),
+                    constraints: [],
+                    span: 465..477,
+                },
+            ],
+            return_type: Some(
+                Float(
+                    482..487,
+                ),
+            ),
+            invoke_path: Some(
+                "module(\"scripts.analysis\").function(\"get_sentiment\")",
+            ),
+            span: 443..594,
+        },
+    ],
+    agents: [
+        AgentDecl {
+            name: "Researcher",
+            extends: None,
+            client: Some(
+                "FastOpenAI",
+            ),
+            system_prompt: Some(
+                "Stay deterministic.",
+            ),
+            tools: [
+                "WebScraper",
+                "AnalyzeSentiment",
+            ],
+            settings: AgentSettings {
+                entries: [
+                    AgentSetting {
+                        name: "max_steps",
+                        value: Int(
+                            5,
+                        ),
+                        span: 807..841,
+                    },
+                    AgentSetting {
+                        name: "temperature",
+                        value: Float(
+                            0.1,
+                        ),
+                        span: 841..857,
+                    },
+                ],
+                span: 785..875,
+            },
+            span: 594..903,
+        },
+    ],
+    workflows: [
+        WorkflowDecl {
+            name: "Analyze",
+            arguments: [
+                TypeField {
+                    name: "company",
+                    data_type: String(
+                        929..935,
+                    ),
+                    constraints: [],
+                    span: 920..935,
+                },
+            ],
+            return_type: Some(
+                String(
+                    940..946,
+                ),
+            ),
+            body: Block {
+                statements: [
+                    LetDecl {
+                        name: "report",
+                        explicit_type: None,
+                        value: ExecuteRun {
+                            agent_name: "Researcher",
+                            kwargs: [
+                                (
+                                    "task",
+                                    Identifier(
+                                        "company",
+                                    ),
+                                ),
+                            ],
+                            require_type: Some(
+                                String(
+                                    1071..1077,
+                                ),
+                            ),
+                        },
+                        span: 965..1113,
+                    },
+                    Return {
+                        value: Identifier(
+                            "report",
+                        ),
+                        span: 1113..1139,
+                    },
+                ],
+                span: 947..1140,
+            },
+            span: 903..1154,
+        },
+    ],
+    listeners: [
+        ListenerDecl {
+            name: "OnSlackMessage",
+            event_type: "Events.Slack.Message",
+            body: Block {
+                statements: [
+                    Expression(
+                        MethodCall(
+                            Identifier(
+                                "event",
+                            ),
+                            "reply",
+                            [
+                                StringLiteral(
+                                    "done",
+                                ),
+                            ],
+                        ),
+                        1225..1257,
+                    ),
+                ],
+                span: 1207..1258,
+            },
+            span: 1154..1272,
+        },
+    ],
+    tests: [
+        TestDecl {
+            name: "smoke",
+            body: Block {
+                statements: [
+                    Return {
+                        value: StringLiteral(
+                            "ok",
+                        ),
+                        span: 1303..1327,
+                    },
+                ],
+                span: 1285..1328,
+            },
+            span: 1272..1342,
+        },
+    ],
+    mocks: [
+        MockDecl {
+            target_agent: "Researcher",
+            mock_input: StringLiteral(
+                "input",
+            ),
+            mock_output: StringLiteral(
+                "output",
+            ),
+            span: 1342..1387,
+        },
+    ],
+    span: 13..1387,
+}
