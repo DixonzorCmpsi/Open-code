@@ -266,7 +266,7 @@ fn data_type_to_json_schema(dt: &DataType) -> String {
         DataType::Float(_) => r#"{ type: "number" }"#.to_owned(),
         DataType::Boolean(_) => r#"{ type: "boolean" }"#.to_owned(),
         DataType::List(inner, _) => format!(r#"{{ type: "array", items: {} }}"#, data_type_to_json_schema(inner)),
-        DataType::Custom(name, _) => format!(r#"{{ $ref: "#/definitions/{}" }}"#, name),
+        DataType::Custom(name, _) => format!(r##"{{ "$ref": "#/definitions/{}" }}"##, name),
     }
 }
 

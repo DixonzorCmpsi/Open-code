@@ -1,0 +1,19 @@
+{
+  "agents": {
+    "coder": {
+      "model": "claude-4-sonnet"
+    }
+  },
+  "contextPaths": [
+    "generated/claw-context.md"
+  ],
+  "mcpServers": {
+    "claw-tools": {
+      "args": [
+        "generated/mcp-server.js"
+      ],
+      "command": "node",
+      "type": "stdio"
+    }
+  }
+}

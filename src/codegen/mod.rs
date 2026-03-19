@@ -2,6 +2,7 @@ mod python;
 mod typescript;
 pub mod opencode;
 pub mod mcp;
+pub mod baml;
 
 use std::fmt::Write as _;
 

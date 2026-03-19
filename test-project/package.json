@@ -1,0 +1,14 @@
+{
+  "name": "my-claw-project",
+  "type": "module",
+  "scripts": {
+    "build": "claw build",
+    "dev": "claw dev"
+  },
+  "devDependencies": {
+    "@claw/cli": "latest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  }
+}

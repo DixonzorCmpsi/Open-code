@@ -1,0 +1,7 @@
+{
+  "build": {
+    "source": "example.claw",
+    "language": "opencode",
+    "output_dir": "generated"
+  }
+}

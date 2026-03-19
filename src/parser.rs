@@ -992,18 +992,23 @@ fn raw_string_expr(input: &mut Input<'_>) -> PResult<Expr> {
 }
 
 fn raw_number_expr(input: &mut Input<'_>) -> PResult<Expr> {
-    let value = raw_number_literal.parse_next(input)?;
-    if value.contains('.') {
-        match value.parse::<f64>() {
-            Ok(parsed) if !parsed.is_infinite() && !parsed.is_nan() => Ok(Expr::FloatLiteral(parsed)),
-            _ => Err(winnow::error::ErrMode::from_error_kind(input, winnow::error::ErrorKind::Verify).cut()),
-        }
-    } else {
-        match value.parse::<i64>() {
-            Ok(parsed) => Ok(Expr::IntLiteral(parsed)),
-            Err(_) => Err(winnow::error::ErrMode::from_error_kind(input, winnow::error::ErrorKind::Verify).cut()),
-        }
-    }
+    raw_number_literal
+        .verify(|v: &String| {
+            if v.contains('.') {
+                v.parse::<f64>()
+                    .map_or(false, |parsed| !parsed.is_infinite() && !parsed.is_nan())
+            } else {
+                v.parse::<i64>().is_ok()
+            }
+        })
+        .map(|v: String| {
+            if v.contains('.') {
+                Expr::FloatLiteral(v.parse::<f64>().expect("verified"))
+            } else {
+                Expr::IntLiteral(v.parse::<i64>().expect("verified"))
+            }
+        })
+        .parse_next(input)
 }
 
 fn raw_bool_expr(input: &mut Input<'_>) -> PResult<Expr> {
@@ -1021,7 +1026,7 @@ fn identifier_or_call_expr(input: &mut Input<'_>) -> PResult<Expr> {
         .parse_next(input)?;
 
     let mut current_expr = ident_expr;
-    let mut current_span = ident_span;
+    let mut current_span: crate::ast::Span = ident_span;
 
     let checkpoint = input.checkpoint();
     if let Ok(args) = call_args.parse_next(input) {

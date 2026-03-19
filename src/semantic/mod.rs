@@ -237,14 +237,12 @@ mod tests {
         let error = Analyzer::validate(&document).unwrap_err();
 
         match error {
-            CompilerError::DuplicateSymbol {
-                name,
-                first_span,
-                second_span,
+            CompilerError::DuplicateDeclaration {
+                message,
+                span,
             } => {
-                assert_eq!(name, "Researcher");
-                assert_eq!(first_span, 40..58);
-                assert_eq!(second_span, 121..150);
+                assert!(message.contains("Researcher"));
+                assert_eq!(span, 121..150);
             }
             other => panic!("expected duplicate symbol error, got {other:?}"),
         }

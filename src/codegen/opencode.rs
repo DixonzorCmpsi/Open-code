@@ -169,7 +169,7 @@ fn find_primary_agent<'a>(workflow: &'a WorkflowDecl, document: &'a Document) ->
 
 fn describe_statement_opencode(stmt: &Statement) -> String {
     match stmt {
-        Statement::LetDecl { name, .. } => format!("Initialize variable `{}`", name),
+        Statement::LetDecl { name, value, .. } => format!("Initialize variable `{}` with {}", name, describe_expr_opencode(&value.expr)),
         Statement::ForLoop { item_name, .. } => format!("Iterate over items as `{}`", item_name),
         Statement::IfCond { .. } => "Conditional branch".to_owned(),
         Statement::ExecuteRun { agent_name, kwargs, .. } => {
