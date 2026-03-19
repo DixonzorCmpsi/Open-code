@@ -1,5 +1,13 @@
 # Phase 8 GAN Audit: Checkpointing, Resumption, and State Mutations
 
+> **SUPERSEDED (OpenCode migration):** This entire audit was written against the `openclaw-gateway`
+> checkpoint system (SQLite/Redis, AST hash bindings, drain mode, TypeBox bouncer on resume).
+> The gateway is retired and archived at `archived/openclaw-gateway/`.
+> All findings below (non-deterministic loop attack, AST drift, poisoned checkpoint injection,
+> infinite retry) are now addressed by OpenCode's session management layer.
+> See `specs/25-OpenCode-Integration.md §5` for the capability mapping.
+> Historical reference only — do not implement based on this spec.
+
 In this GAN (Generative Adversarial Network) Audit, **The Breaker** (Systems/Security Architect) challenges **The Maker** (Lead Execution Engineer) regarding the structural guarantees of the Claw Gateway's Event Sourcing and Checkpoint OS (`specs/07-Claw-OS.md`).
 
 ---

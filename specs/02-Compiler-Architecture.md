@@ -79,7 +79,9 @@ Before generating any code, the compiler must prove that the `.claw` code is log
 
 This is the core "Magic" of the compiler.
 
-The compiler takes high-level structs and lowers them into the specific JSON Schema / TypeBox representation that the Claw Gateway requires for **Constrained Decoding**.
+The compiler takes high-level structs and lowers them into JSON Schema (TypeBox format) for **Constrained Decoding**. These schemas are used by:
+- The generated MCP server (`generated/mcp-server.js`) for tool input/output validation
+- The TypeScript SDK (Zod schemas) and Python SDK (Pydantic models) for runtime validation at workflow boundaries
 
 For example, a `.claw` type:
 ```claw
@@ -89,7 +91,7 @@ type SearchResult {
 }
 ```
 
-Is translated internally in the compiler's memory to the exact syntax required by Claw's Gateway tools.
+Is translated internally to a JSON Schema object. See `specs/26-MCP-Server-Generation.md §3` for the complete type mapping table.
 
 ---
 
@@ -97,13 +99,29 @@ Is translated internally in the compiler's memory to the exact syntax required b
 
 The final step is emitting the code the developer will actually use. The compiler uses `minijinja` (a Rust Jinja2 implementation) for template-driven SDK emission, or direct string building for targets where template syntax conflicts (e.g., BAML files use `{{ }}` which conflicts with Jinja delimiters).
 
-**Target 1: TypeScript (`clawc generate --target ts`)**
-Generates `generated/claw.ts`.
-This file will contain TypeScript interfaces mapping to the `.claw` types, and asynchronous wrapper functions that handle the WebSocket connection to `openclaw-gateway`.
+**Target 1: OpenCode (`clawc build --lang opencode`) — PRIMARY TARGET**
+Emits the full OpenCode integration bundle:
+- `opencode.json` — provider, MCP, and session config
+- `.opencode/agents/{Name}.md` — one per `agent` block
+- `.opencode/commands/{Name}.md` — one per `workflow` block
+- `generated/mcp-server.js` — MCP server for all `tool` blocks
+- `generated/claw-context.md` — project context document
+- `generated/claw-test-runner.js` — offline test runner (when `test`/`mock` blocks exist)
+- `generated/claw/index.ts` — TypeScript SDK (also emitted for programmatic use)
 
-**Target 2: Python (`clawc generate --target python`)**
-Generates `generated/claw.py`.
-Creates Pydantic models for the `.claw` types and asynchronous Python functions (using `asyncio` and `websockets`) to trigger the Claw Gateway.
+Full specification: `specs/25-OpenCode-Integration.md`, `specs/26-MCP-Server-Generation.md`.
+
+**Target 2: TypeScript (`clawc build --lang ts`)**
+Generates `generated/claw/index.ts`.
+Zod schemas mapping to `.claw` types, and typed async workflow functions for programmatic invocation.
+
+**Target 3: Python (`clawc build --lang python`)**
+Generates `generated/claw/__init__.py`.
+Pydantic models for `.claw` types and typed async workflow functions.
+
+**Target 4: BAML (`clawc build --lang baml`) — Optional**
+Generates `generated/baml_src/` for BAML-powered LLM orchestration.
+See `specs/18-BAML-Integration-Layer.md`.
 
 ## 5. Exit Code Mapping
 

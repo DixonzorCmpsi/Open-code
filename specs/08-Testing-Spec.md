@@ -8,7 +8,7 @@ This document defines the strict testing methodology for the `.claw` compiler (`
 
 The exact workflow for every feature:
 
-1. **Read the spec.** If building a parser combinator, read `specs/03-Grammar.md`. If touching the gateway, read `specs/07-Claw-OS.md`. If touching security, read `specs/12-Security-Model.md`.
+1. **Read the spec.** If building a parser combinator, read `specs/03-Grammar.md`. If touching the MCP server or OpenCode config emitter, read `specs/25-OpenCode-Integration.md` and `specs/26-MCP-Server-Generation.md`. If touching compiler security, read `specs/12-Security-Model.md §7`.
 2. **Write the test.** Create the `#[test]` or `test()` block with explicit assertions on inputs and expected outputs. Include BOTH happy path and error path tests.
 3. **Run the test suite — confirm FAILURE (red).** The test must fail because the implementation doesn't exist yet. If it passes, you're testing something that already works or your test is wrong.
 4. **Write the MINIMUM code** to make the test pass. No extra features, no premature abstractions.
@@ -47,28 +47,38 @@ For code generation, the tests must take a valid, semantic-checked AST and invok
 
 ## 4. Security Testing Requirements
 
-The following security properties MUST have dedicated tests (see `specs/12-Security-Model.md`):
+The following security properties MUST have dedicated tests. Note: runtime security (auth, sessions, request limits, WebSocket) is delegated to OpenCode. Claw-owned security is in the **compiler** and the **generated MCP server** only. See `specs/12-Security-Model.md §7` and `specs/26-MCP-Server-Generation.md §5`.
 
-| Property | Test Description |
-|----------|-----------------|
-| Timing-safe API key | Verify `crypto.timingSafeEqual` is used, not `===` |
-| Request body limit | Send >1MB body, assert HTTP 413 or connection reset |
-| Symlink rejection | Create symlink to outside workspace, assert tool resolution fails |
-| Malformed WebSocket | Send incomplete frame buffer, assert no crash |
-| Predictable session ID | Assert session IDs contain UUID format, not timestamps |
-| Exit code mapping | Run sandbox with OOM, assert exit code 137 maps to `SandboxOOMError` |
+| Property | Owner | Test Description |
+|----------|-------|-----------------|
+| Parser no-panic | `clawc` compiler | Feed deeply nested `.claw` (256+ levels), assert no panic — returns `CompilerError::ParseError` |
+| Numeric overflow | `clawc` compiler | Parse integer exceeding `i64::MAX`, assert `CompilerError::ParseError` with span |
+| Path traversal rejection (compile-time) | `clawc` compiler | `invoke: module("../../etc/passwd")`, assert `CompilerError::InvalidToolPath` |
+| Path traversal rejection (runtime) | `generated/mcp-server.js` | Symlink inside workspace pointing outside, assert handler throws "resolves outside workspace" |
+| MCP input schema validation | `generated/mcp-server.js` | Call tool with missing required arg, assert `isError: true` and message includes "required" |
+| MCP handler error isolation | `generated/mcp-server.js` | Mock module throws, assert `isError: true` and MCP server process stays running |
+| Compiler warning on `retries` | `clawc` compiler | `client` block with `retries = 3`, `--lang opencode`, assert compiler emits warning and does NOT emit `retries` in `opencode.json` |
+| OpenCode config validity | `clawc` emitter | `clawc build --lang opencode`, assert `opencode.json` is valid JSON with required fields |
 
-## 5. Gateway Integration Test Patterns
+## 5. OpenCode Integration Test Patterns
 
-End-to-end gateway tests should:
-1. Load a real compiled `document.json` (produced by `clawc build`)
-2. Execute a workflow through the traversal engine with a mock or in-memory checkpoint store
-3. Validate the result against the expected schema
-4. Verify checkpoint persistence and idempotent replay (same session_id returns cached result)
+End-to-end integration tests (replacing the retired gateway integration tests):
 
-## 6. LLM Mock Patterns
+1. Run `clawc build --lang opencode` on a reference `.claw` file
+2. Assert all expected output files exist: `opencode.json`, `.opencode/agents/*.md`, `.opencode/commands/*.md`, `generated/mcp-server.js`, `generated/claw-context.md`
+3. Assert `opencode.json` is valid JSON and contains `mcp.claw-tools` pointing to `generated/mcp-server.js`
+4. Start `generated/mcp-server.js` in-process, send `ListToolsRequest`, assert tool count matches `tool` block count
+5. Call each tool via `CallToolRequest` with valid inputs (mock the underlying module), assert valid output
+6. Assert that re-running `clawc build` on a project with an existing `opencode.json` preserves non-Claw fields (merge strategy test)
 
-Tests MUST NOT call real LLM APIs. The gateway's LLM bridge falls back to a mock response generator when no API keys are configured. Tests should:
-- Verify mock responses conform to the TypeBox schema
-- Verify schema degradation detection on deliberately empty mock responses
-- Verify error handling when the LLM bridge returns non-JSON
+## 6. Offline Test Execution Patterns
+
+`claw test` runs entirely offline (no LLM, no OpenCode). Tests should:
+
+- Verify `assert` statements in test blocks compile to `node:assert` calls in `generated/claw-test-runner.js`
+- Verify mock registry intercepts agent calls before any LLM routing
+- Verify that a test block executing an agent with no mock fails with "No mock defined for agent '...'"
+- Verify test timeout (default 30s, configurable via `CLAW_TEST_TIMEOUT_MS`) kills hanging tests
+- Verify `--filter` substring matching selects correct subset of tests
+
+See `specs/17-Phase6-Test-Runner-And-Mocks.md §7` for the generated test runner spec.

@@ -1,23 +1,24 @@
-client FastOpenAI {
-    provider = "openai"
-    model = "gpt-4o"
-    retries = 3
-}
+// example.claw — Claw DSL demo using local Ollama (qwen2.5-coder:7b)
+// Run: export LOCAL_ENDPOINT=http://localhost:11434 && opencode /FindInfo "quantum computing"
 
 type SearchResult {
-    url: string @regex("^https://")
-    confidence_score: float @min(0)
+    url: string
     snippet: string
-    tags: list<string>
+    confidence_score: float
 }
 
 tool WebSearch(query: string) -> SearchResult {
-    invoke: module("scripts.search").function("run")
+    invoke: module("scripts/search").function("run")
+}
+
+client LocalQwen {
+    provider = "local"
+    model = "local.qwen2.5-coder:7b"
 }
 
 agent Researcher {
-    client = FastOpenAI
-    system_prompt = "Stay deterministic."
+    client = LocalQwen
+    system_prompt = "You are a precise researcher. Use the WebSearch tool to find information. Always return a SearchResult with url, snippet, and confidence_score."
     tools = [WebSearch]
     settings = {
         max_steps: 5,
@@ -25,10 +26,10 @@ agent Researcher {
     }
 }
 
-workflow AnalyzeCompetitors(company: string) -> SearchResult {
-    let report: SearchResult = execute Researcher.run(
-        task: company,
-        require_type: SearchResult,
+workflow FindInfo(topic: string) -> SearchResult {
+    let result: SearchResult = execute Researcher.run(
+        task: "Find the most relevant info about: ${topic}",
+        require_type: SearchResult
     )
-    return report
+    return result
 }

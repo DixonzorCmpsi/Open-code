@@ -37,13 +37,13 @@ Claw's LLM boundary currently makes raw HTTP calls with no retry, no constrained
 
 ### 1.1 Compilation Pipeline
 
-```
+```text
 example.claw
     │
-    clawc build
+    claw build
     │
     ├── generated/claw/index.ts        (orchestration SDK — unchanged)
-    ├── generated/claw/document.json    (compiled AST — unchanged)
+    ├── generated/mcp-server.js        (OpenCode config — unchanged)
     └── generated/baml_src/            (NEW — BAML project)
         ├── generators.baml            (BAML generator config)
         ├── clients.baml               (LLM provider configs)
@@ -51,7 +51,7 @@ example.claw
         └── functions.baml             (per-call-site BAML functions)
 ```
 
-After `clawc build`, the developer (or CI) runs `npx baml-cli generate` to produce the typed BAML client from the `.baml` files. This is a TWO-STEP build:
+After `claw build`, the developer (or CI) runs `npx baml-cli generate` to produce the typed BAML client from the `.baml` files. This is a TWO-STEP build:
 
 ```bash
 claw build           # .claw → SDK + .baml files
@@ -59,22 +59,6 @@ npx baml-cli generate    # .baml files → baml_client/ (typed TS/Python)
 ```
 
 `claw build` can orchestrate both steps automatically when BAML is installed.
-
-### 1.2 Runtime Flow
-
-```
-Gateway: executeAgentRun()
-    │
-    ├── Mock check (spec 17 mock registry — HIGHEST priority)
-    │
-    ├── Tool check (agent.tools.length > 0 → gateway tool routing)
-    │
-    ├── BAML check (baml_client available → call typed BAML function)
-    │
-    └── Fallback (raw HTTP bridge in llm.ts — always available)
-```
-
-**Execution priority is explicit and fixed:** Mocks > Tools > BAML > Raw HTTP.
 
 ---
 
@@ -125,34 +109,8 @@ export async function ResearcherRun_VerifiedUser(args: {
 }): Promise<VerifiedUser> { ... }
 ```
 
-Step 3 — The gateway imports the generated BAML client:
-```typescript
-// openclaw-gateway/src/baml-bridge.ts
-let bamlFunctions: Record<string, (args: Record<string, unknown>) => Promise<unknown>> | null = null;
-
-export async function loadBamlClient(workspaceRoot: string): Promise<void> {
-  try {
-    const clientPath = join(workspaceRoot, "generated", "baml_client", "index.js");
-    const mod = await import(pathToFileURL(clientPath).href);
-    bamlFunctions = {};
-    for (const [name, fn] of Object.entries(mod)) {
-      if (typeof fn === "function") {
-        bamlFunctions[name] = fn as (args: Record<string, unknown>) => Promise<unknown>;
-      }
-    }
-  } catch {
-    bamlFunctions = null; // BAML not available
-  }
-}
-
-export function callBamlFunction(
-  functionName: string,
-  args: Record<string, unknown>
-): Promise<unknown> | null {
-  if (!bamlFunctions || !bamlFunctions[functionName]) return null;
-  return bamlFunctions[functionName](args);
-}
-```
+// openclaw-gateway/ (RETIRED)
+// Applications now import the generated BAML client directly.
 
 ### 2.3 FATAL Fix: Polymorphic Agents Generate Multiple Functions
 
@@ -408,184 +366,13 @@ Agents where `resolved.tools.len() > 0` do NOT generate BAML functions. The gate
 
 ---
 
-## 5. Gateway Integration
-
-### 5.1 Execution Order (Definitive)
-
-```typescript
-async function executeAgentRun(
-  compiled, state, executeRun, statementPath, workspaceRoot, checkpoints,
-  mockRegistry?: MockRegistry
-): Promise<unknown> {
-  const agent = findAgent(compiled.document, executeRun.agent_name);
-  const returnSchema = /* ... existing schema building ... */;
-
-  // Priority 1: Mock interception (test mode)
-  if (mockRegistry) {
-    const mock = mockRegistry.lookup(executeRun.agent_name);
-    if (mock !== null) return validateToolResult(mock, returnSchema);
-  }
-
-  // Priority 2: Tool routing (Browser, custom tools)
-  if (/* existing tool routing conditions */) {
-    return /* existing tool routing */;
-  }
-
-  // Priority 3: BAML (if available and agent has no tools)
-  if (agent.tools.length === 0) {
-    const bamlResult = await tryBamlCall(agent, executeRun, kwargs, workspaceRoot);
-    if (bamlResult !== null) {
-      return validateToolResult(bamlResult, returnSchema);
-    }
-  }
-
-  // Priority 4: Raw HTTP fallback
-  return validateToolResult(
-    await generateStructuredResult({ /* existing */ }),
-    returnSchema
-  );
-}
-```
-
-### 5.2 BAML Call Helper
-
-```typescript
-async function tryBamlCall(
-  agent: AgentDecl,
-  executeRun: StatementExecuteRun,
-  kwargs: Record<string, unknown>,
-  workspaceRoot: string
-): Promise<unknown | null> {
-  const returnTypeName = extractCustomTypeName(executeRun.require_type) ?? "String";
-  const functionName = `${agent.name}Run_${returnTypeName}`;
-
-  const result = callBamlFunction(functionName, kwargs);
-  if (result === null) return null; // BAML not available
-
-  return result;
-}
-```
-
-### 5.3 Hot Reload Support
-
-```typescript
-// baml-bridge.ts
-let bamlFunctions: Record<string, Function> | null = null;
-let bamlLoadedAt = 0;
-
-export async function loadBamlClient(workspaceRoot: string, force = false): Promise<void> {
-  const clientPath = join(workspaceRoot, "generated", "baml_client", "index.js");
-  try {
-    const stat = await import("node:fs/promises").then(fs => fs.stat(clientPath));
-    const mtime = stat.mtimeMs;
-    if (!force && bamlFunctions && mtime <= bamlLoadedAt) return;
-
-    // Dynamic import with cache-busting query string
-    const mod = await import(`${pathToFileURL(clientPath).href}?t=${mtime}`);
-    bamlFunctions = {};
-    for (const [name, fn] of Object.entries(mod)) {
-      if (typeof fn === "function") bamlFunctions[name] = fn;
-    }
-    bamlLoadedAt = mtime;
-  } catch {
-    bamlFunctions = null;
-  }
-}
-```
-
-The gateway calls `loadBamlClient(workspaceRoot)` on every request. The function checks the file's mtime and only reloads if the generated client has changed. This supports hot reload during `claw dev`.
-
 ---
 
-## 6. Validation Strategy: BAML Types Win, TypeBox Is Defense-in-Depth
+## 5. Summary of OpenCode migration
 
-BAML validates output using its own type system. TypeBox validates using Claw's schema.
+The `openclaw-gateway` runtime is retired. The `claw` compiler still emits BAML artifacts, which can be utilized by developers in their own application code alongside OpenCode-orchestrated workflows.
 
-**Rule:** If BAML returns a result, the TypeBox validation still runs. If TypeBox validation fails after BAML succeeds, this indicates a codegen bug (BAML types drifted from Claw types). Per the fail-fast philosophy, the gateway MUST throw a `SchemaDegradationError` with a descriptive message including both the BAML function name and the specific TypeBox validation failure. This is NOT silently swallowed.
-
-**In practice:** TypeBox validation should almost never fail after BAML succeeds. If it does, it's a bug in the BAML emitter's type mapping and must be surfaced immediately, not hidden behind a warning.
-
----
-
-## 7. Dependencies
-
-### 7.1 Gateway
-
-```json
-{
-  "optionalDependencies": {
-    "@boundaryml/baml": "0.70.0"
-  }
-}
-```
-
-**Pinned exact version** (not caret range). BAML is pre-1.0 and breaking changes occur between minors.
-
-### 7.2 BAML CLI
-
-The developer installs `@boundaryml/baml` globally or as a project dependency. `claw build` detects if `baml-cli` is available and runs `baml-cli generate` automatically after emitting `.baml` files.
-
----
-
-## 8. Behavioral Parity: What Happens Without BAML
-
-| Feature | With BAML | Without BAML |
-|---------|-----------|-------------|
-| `retries = 3` | BAML retries | Fallback: raw HTTP, retry count logged as warning |
-| `temperature: 0.1` | Passed to provider | Logged as warning, not applied |
-| `provider = "custom"` | Routes via BAML | Falls to mock with warning |
-| `@regex(...)` constraint | Token-level (if supported) | Post-parse validation |
-
-**Important:** When BAML is not available, the compiler emits a warning:
-```
-warning: BAML runtime not found. LLM features (retries, temperature, custom providers)
-         will be degraded. Install @boundaryml/baml for full functionality.
-```
-
-This ensures developers know the system is running in fallback mode.
-
----
-
-## 9. Error Types
-
-### 9.1 Compile-Time Errors
-
-Add to `src/errors.rs`:
-
-```rust
-CompilerError::BamlSignatureConflict {
-    agent_name: String,
-    message: String,
-    span: Span,
-}
-
-CompilerError::CircularAgentExtends {
-    agent_name: String,
-    span: Span,
-}
-```
-
-### 9.2 Runtime Error Semantics Across Execution Chain
-
-The fixed execution priority (Mock > Tools > BAML > Raw HTTP) produces these error types:
-
-| Source | Error thrown | Catchable in try/catch as |
-|--------|------------|--------------------------|
-| Mock returns data that fails TypeBox | `SchemaDegradationError` | `SchemaDegradationError` |
-| BAML call fails (network/provider error) | `AgentExecutionError` | `AgentExecutionError` |
-| BAML retry exhaustion (all retries failed) | `AgentExecutionError` | `AgentExecutionError` |
-| BAML returns data that fails TypeBox | `SchemaDegradationError` | `SchemaDegradationError` |
-| Raw HTTP call fails | `AgentExecutionError` | `AgentExecutionError` |
-| Tool execution fails | `ToolExecutionError` | `ToolExecutionError` |
-| Tool sandbox timeout | `ToolExecutionError` | `ToolExecutionError` |
-
-All three built-in error types (`AgentExecutionError`, `SchemaDegradationError`, `ToolExecutionError`) are registered in the symbol table (Spec 15) and can be caught by any `catch (e: ErrorType)` clause.
-
----
-
-## 10. TDD Tests
-
-### Compiler Tests
+### 5.1 Compiler Tests
 
 1. **`test_resolve_agent_inherits_client`**
 2. **`test_resolve_agent_inherits_system_prompt`**
@@ -597,20 +384,3 @@ All three built-in error types (`AgentExecutionError`, `SchemaDegradationError`,
 8. **`test_emit_baml_function_with_optional_param`** → Snapshot test
 9. **`test_emit_baml_generator_block`** → Contains output_type and version
 10. **`test_skip_tool_using_agent`** → Agent with tools → no BAML function
-
-### Gateway Tests
-
-11. **`test_baml_bridge_returns_null_when_not_installed`**
-12. **`test_baml_bridge_calls_correct_function_name`**
-13. **`test_execution_order_mock_over_baml`** — Mock registry takes priority
-14. **`test_execution_order_tools_over_baml`** — Tool-using agent skips BAML
-15. **`test_hot_reload_picks_up_new_baml_client`** — Change mtime, verify reload
-
----
-
-## 11. Limitations & Future Work
-
-- **Tool-using agents skip BAML** (Phase 7: BAML-powered tool use loops)
-- **No streaming** (Phase 7: BAML streaming + gateway checkpoint integration)
-- **No conversation history** (`Memory.truncate()` + session API → Phase 8)
-- **Per-call-site function generation** produces many functions for polymorphic agents. If this becomes unwieldy, Phase 7 can introduce BAML dynamic dispatch.

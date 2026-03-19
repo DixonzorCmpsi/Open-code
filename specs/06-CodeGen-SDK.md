@@ -97,8 +97,53 @@ async def analyze_competitors(company: str, client: ClawClient) -> SearchResult:
     return SearchResult(**result_dict)
 ```
 
-## 4. The Gateway Communication Contract
+## 4. The OpenCode Communication Contract
 
-When the generated SDK executes, it serializes the workflow request into standard JSON and sends it over WebSockets to the `openclaw-gateway` (which acts as the operating system for agent execution).
+When the generated SDK executes, it invokes OpenCode (the execution OS) via its CLI or API. OpenCode handles all LLM orchestration, tool execution (via the MCP server), and session management.
 
-The SDK is purely a lightweight router; the complex task of spinning up Playwright browsers, managing Docker-based Python scripts, and enforcing TypeBox constrained decoding via OpenAI is handled by the Claw Gateway.
+The SDK is a lightweight typed wrapper; the complex task of spinning up browser automation, managing tool sandboxing, and LLM provider routing is handled by OpenCode + the generated MCP server.
+
+See `specs/25-OpenCode-Integration.md` for the full execution contract.
+
+---
+
+## 5. Target: OpenCode Configuration (`clawc build --lang opencode`)
+
+In addition to TypeScript and Python SDKs, `clawc` emits OpenCode-native configuration files that allow workflows to run interactively inside the OpenCode terminal/IDE.
+
+**Emitted files:**
+
+| File | Purpose |
+|------|---------|
+| `opencode.json` | OpenCode provider, MCP, and agent config |
+| `.opencode/agents/{Name}.md` | One per `agent` block |
+| `.opencode/commands/{Name}.md` | One per `workflow` block |
+| `generated/mcp-server.js` | MCP server for all `tool` blocks |
+| `generated/claw-context.md` | Project context document |
+
+The full mapping from `.claw` constructs to OpenCode config is defined in `specs/25-OpenCode-Integration.md`. The MCP server generation spec is in `specs/26-MCP-Server-Generation.md`.
+
+**Usage:**
+```bash
+clawc build --lang opencode example.claw
+opencode  # launches OpenCode with full Claw context
+```
+
+---
+
+## 6. CodeGen Emitter Summary
+
+| Target | Emitter | Output |
+|--------|---------|--------|
+| `--lang ts` | `src/codegen/typescript.rs` | `generated/claw/index.ts` (Zod schemas + async functions) |
+| `--lang python` | `src/codegen/python.rs` | `generated/claw/__init__.py` (Pydantic models + async functions) |
+| `--lang opencode` | `src/codegen/opencode.rs` + `src/codegen/mcp.rs` + `src/codegen/test_runner.rs` | `opencode.json`, `.opencode/agents/`, `.opencode/commands/`, `generated/mcp-server.js`, `generated/claw-context.md`, `generated/claw-test-runner.js` |
+| `--lang baml` | `src/codegen/baml.rs` | `generated/baml_src/` (BAML project files) |
+
+The `opencode` target runs all four sub-emitters in sequence:
+1. `emit_opencode_json()` — provider/MCP config
+2. `emit_agent_markdowns()` — `.opencode/agents/*.md`
+3. `emit_command_markdowns()` — `.opencode/commands/*.md`
+4. `emit_mcp_server()` — `generated/mcp-server.js`
+5. `emit_context_md()` — `generated/claw-context.md`
+6. `emit_test_runner()` — `generated/claw-test-runner.js` (only when `test`/`mock` blocks exist)

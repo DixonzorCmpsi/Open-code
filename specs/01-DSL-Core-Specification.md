@@ -145,7 +145,7 @@ workflow AnalyzeCompetitors(companies: list<string>) -> list<string> {
 
 ## 5. Event/Routing Specifications
 
-The DSL can define listeners to trigger workflows conditionally based on Claw Gateway events.
+The DSL can define listeners to trigger workflows conditionally based on OpenCode events.
 
 ```claw
 listener OnSlackMessage(event: Events.Slack.Message) {
@@ -238,41 +238,58 @@ The Bouncer is essentially turned off. The AI is allowed to freely generate conv
 The AI sends a special flag back to its own server that says *"I am activating tool: WebScraper"*. 
 **The exact millisecond** the AI makes that decision, the server activates the Bouncer for the `WebScraper` blueprint. The server shifts into "Constrained Decoding Mode" and begins forcing the AI to output the structured JSON arguments, token-by-token, until the JSON object is completely finished.
 
-## 7. The Compiler: What Language Should Build This?
+## 7. The Compiler and Execution OS
 
-To make the `.claw` language actually work, we have to build a **Compiler** (which we'll call `clawc`). 
-The Compiler reads the `.claw` text file, checks it for errors, and translates it into real code (like Python or TypeScript) that the developer can actually run.
+To make the `.claw` language work, two components are required:
 
-**The Best Language to Build the Compiler: Rust.**
+### 7.1 The Compiler (`clawc`) — Built in Rust
 
-Here is exactly why Rust is the undisputed best choice to build the `clawc` compiler, head-and-shoulders above Python, TypeScript, or Go:
+`clawc` reads the `.claw` file, checks it for errors, and translates it into configuration files and SDK code that the developer can run.
 
-### 1. The Parser Ecosystem
-Building a new language requires parsing text into an "Abstract Syntax Tree" (AST). 
-Rust has the best modern tools in the world for building language parsers. Frameworks like `logos` (for ultra-fast tokenization) and `pest` or `winnow` (for grammar parsing) allow us to define the `.claw` syntax mathematically. TypeScript and Python parsers are incredibly slow and error-prone by comparison.
+**Why Rust?**
 
-### 2. The Native Execution Speed
-When a developer runs `clawc generate` in their terminal to compile their agent logic, they want it to take milliseconds. 
-Python has a multi-second startup time just to load its virtual machine. Node.js (TypeScript) takes hundreds of milliseconds to boot V8. Rust compiles down to a single, raw machine-code binary. It runs instantly.
+1. **Parser Ecosystem:** `winnow` and `pest` are the best modern parser combinator libraries. They parse `.claw` syntax into a typed AST with exact byte spans for error reporting — better than any Python or TypeScript alternative.
 
-### 3. The "Write Once, Run Anywhere" Distribution
-If we wrote the compiler in TypeScript, every developer using `.claw` would be forced to install Node.js and `npm`. If we wrote it in Python, they'd have to manage `pip` virtual environments just to install it. 
-With Rust, we compile a standalone `.exe` for Windows, a `.app` for Mac, and a binary for Linux. A developer using Python or Go to build their agents can download the `clawc` tool instantly without installing any other dependencies.
+2. **Instant Execution:** `clawc` compiles to a standalone machine-code binary that runs in milliseconds, with no Node.js or Python VM startup overhead.
 
-### 4. Memory Safety for the AST
-A compiler's entire job is managing heavily nested tree data structures (ASTs). In C or C++, managing the memory for these trees often leads to crashes or security flaws. Rust's strict "Borrow Checker" physically prevents memory leaks or crashes at compile time, guaranteeing the compiler will essentially never crash while parsing a user's file.
+3. **Zero-Dependency Distribution:** Developers download a single binary (`claw` for their OS) with no required runtime. No `cargo`, no `npm`, no `pip`.
+
+4. **Memory Safety:** Rust's borrow checker prevents crashes while processing user-authored `.claw` files, even adversarial inputs.
+
+### 7.2 The Execution OS — OpenCode
+
+**OpenCode** (`opencode.ai`) is the execution runtime for Claw workflows. It is an open-source AI coding agent used by 5M+ developers with support for 75+ LLM providers.
+
+`clawc build --lang opencode` compiles `.claw` source into OpenCode's native configuration:
+
+```
+.claw source
+    │
+    clawc
+    │
+    ├── opencode.json              ← provider + MCP config
+    ├── .opencode/agents/*.md      ← one per `agent` block
+    ├── .opencode/commands/*.md    ← one per `workflow` block
+    ├── generated/mcp-server.js    ← MCP server for all `tool` blocks
+    └── generated/claw-context.md  ← project context document
+```
+
+OpenCode handles all runtime concerns: LLM invocation, session management, tool execution, streaming, and permission sandboxing. Claw's job is compile-time type safety and deterministic orchestration definition.
+
+**Full architecture contract:** `specs/25-OpenCode-Integration.md`
+**MCP server generation:** `specs/26-MCP-Server-Generation.md`
 
 ### Summary of the Flow
-1. **The Language:** Rust for the core `clawc` compiler.
-2. **The Output:** The compiler will *generate* SDK files in **TypeScript** and **Python** (so developers can use the language they are most comfortable with).
-3. **The Engine:** The generated code will securely talk to the existing **TypeScript** Claw Gateway.
+1. **The Language:** Rust for the `clawc` compiler.
+2. **The Output:** OpenCode configuration + TypeScript/Python SDKs for programmatic use.
+3. **The Engine:** OpenCode — the execution OS that runs agent workflows.
 
 ## 8. Managing AI Pitfalls (Context Limits & Garbage Collection)
 
 To prevent severe runtime bottlenecks such as OOM (Out-of-Memory) errors or Token Limit Exhaustion, `.claw` dictates strict paradigms for managing both software RAM and LLM context.
 
 **Systems Memory & Garbage Collection (RAM):**
-Standard DSLs (like C) require manual memory management (`malloc` / `free`). Because `.claw` compiles directly into high-level AST environments like TypeScript/Node (V8) and Python (CPython), the runtime seamlessly inherits their heavily optimized automatic Garbage Collection (GC). You do not manually allocate or free primitive arrays; the Claw Gateway runtime purges out-of-scope variables automatically. 
+Standard DSLs (like C) require manual memory management (`malloc` / `free`). Because `.claw` compiles directly into high-level AST environments like TypeScript/Node (V8) and Python (CPython), the runtime seamlessly inherits their heavily optimized automatic Garbage Collection (GC). You do not manually allocate or free primitive arrays; the OpenCode runtime (or the generated TypeScript/Python SDK runtime) purges out-of-scope variables automatically. 
 
 **Context Window Pruning (LLM Tokens):**
 While RAM is managed automatically, **LLM Token Context** is the true bottleneck in agent architecture. Instead of blindly handing off massive, infinite `Session` objects between agents and hitting the 128k token limit, `.claw` exposes native Memory module primitives.
@@ -337,8 +354,8 @@ import express from 'express'
 const app = express()
 app.use(express.json())
 
-// 2. Connect to the heavy Gateway (which handles the LLMs, Browsers, and Sandboxes internally)
-const gateway = new ClawClient({ url: "ws://localhost:8080" })
+// 2. Connect to OpenCode (which handles the LLMs, Browsers, and Sandboxes internally)
+const gateway = new ClawClient({ opencode: true })
 
 // 3. You build your standard API endpoint
 app.post('/api/research', async (req, res) => {
@@ -361,4 +378,4 @@ app.post('/api/research', async (req, res) => {
 app.listen(3000)
 ```
 
-**The Core Takeaway:** The `.claw` language compiles down into highly-typed, deterministic standard functions that gracefully plug into your existing Next.js apps, FastAPI logic, or background workers. You never have to write the browser puppeteer scripts or python sandboxes yourself; the Gateway handles the heavy lifting, keeping your API clean.
+**The Core Takeaway:** The `.claw` language compiles down into highly-typed, deterministic standard functions that gracefully plug into your existing Next.js apps, FastAPI logic, or background workers. You never have to write browser puppeteer scripts or Python sandboxes yourself; OpenCode handles the heavy lifting via MCP tool servers, keeping your API clean.

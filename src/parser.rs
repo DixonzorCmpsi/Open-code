@@ -622,8 +622,12 @@ fn statement(input: &mut Input<'_>) -> PResult<Statement> {
         let_stmt,
         for_stmt,
         if_stmt,
+        try_stmt,
         return_stmt,
         execute_stmt,
+        continue_stmt,
+        break_stmt,
+        assert_stmt,
         expression_stmt,
     ))
     .parse_next(input)
@@ -745,6 +749,87 @@ fn execute_stmt(input: &mut Input<'_>) -> PResult<Statement> {
 
     parser.parse_next(input)
 }
+
+fn try_stmt(input: &mut Input<'_>) -> PResult<Statement> {
+    let mut parser = preceded(
+        trivia,
+        terminated(
+            (
+                "try",
+                block,
+                "catch",
+                lexeme('('),
+                lexeme(simple_identifier_raw),
+                lexeme(':'),
+                raw_data_type,
+                lexeme(')'),
+                block,
+            )
+                .with_span()
+                .map(
+                    |((_, try_body, _, _, catch_name, _, catch_type, _, catch_body), span)| {
+                        Statement::TryCatch {
+                            try_body,
+                            catch_name,
+                            catch_type,
+                            catch_body,
+                            span,
+                        }
+                    },
+                ),
+            trivia,
+        ),
+    );
+
+    parser.parse_next(input)
+}
+
+fn continue_stmt(input: &mut Input<'_>) -> PResult<Statement> {
+    let mut parser = preceded(
+        trivia,
+        terminated(
+            "continue"
+                .with_span()
+                .map(|(_, span)| Statement::Continue(span)),
+            trivia,
+        ),
+    );
+
+    parser.parse_next(input)
+}
+
+fn break_stmt(input: &mut Input<'_>) -> PResult<Statement> {
+    let mut parser = preceded(
+        trivia,
+        terminated(
+            "break"
+                .with_span()
+                .map(|(_, span)| Statement::Break(span)),
+            trivia,
+        ),
+    );
+
+    parser.parse_next(input)
+}
+
+fn assert_stmt(input: &mut Input<'_>) -> PResult<Statement> {
+    let mut parser = preceded(
+        trivia,
+        terminated(
+            ("assert", expr, opt(preceded(lexeme(','), string_literal)))
+                .with_span()
+                .map(|((_, condition, message), span)| Statement::Assert {
+                    condition,
+                    message,
+                    span,
+                }),
+            trivia,
+        ),
+    );
+
+    parser.parse_next(input)
+}
+
 
 fn expression_stmt(input: &mut Input<'_>) -> PResult<Statement> {
     let mut parser = preceded(
@@ -911,12 +996,12 @@ fn raw_number_expr(input: &mut Input<'_>) -> PResult<Expr> {
     if value.contains('.') {
         match value.parse::<f64>() {
             Ok(parsed) if !parsed.is_infinite() && !parsed.is_nan() => Ok(Expr::FloatLiteral(parsed)),
-            _ => Err(winnow::error::ErrMode::Cut(winnow::error::ContextError::new())),
+            _ => Err(winnow::error::ErrMode::from_error_kind(input, winnow::error::ErrorKind::Verify).cut()),
         }
     } else {
         match value.parse::<i64>() {
             Ok(parsed) => Ok(Expr::IntLiteral(parsed)),
-            Err(_) => Err(winnow::error::ErrMode::Cut(winnow::error::ContextError::new())),
+            Err(_) => Err(winnow::error::ErrMode::from_error_kind(input, winnow::error::ErrorKind::Verify).cut()),
         }
     }
 }

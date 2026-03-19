@@ -69,7 +69,7 @@ type ProductLink {
 }
 ```
 
-The compiler attaches these lowered schemas directly to the AST nodes. They will be embedded into the final SDK as string literals, ready to be sent to the Claw Gateway.
+The compiler attaches these lowered schemas directly to the AST nodes. They will be embedded into the final SDK as string literals, and used as JSON Schema in the generated MCP server (`generated/mcp-server.js`) for input/output validation. See `specs/26-MCP-Server-Generation.md §3` for the complete Claw-type → JSON Schema mapping.
 
 ## 3. Boundary Safety Limitations
 

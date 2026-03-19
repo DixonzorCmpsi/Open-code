@@ -1,32 +1,37 @@
 # Quickstart & Testing Guide
 
-Welcome to the `.claw` compiler! This guide will walk you through compiling your first agent orchestration graph and running your test suites without burning expensive LLM tokens.
+Welcome to the Claw DSL! This guide will walk you through compiling your first agent orchestration graph and running your test suites using OpenCode.
 
 ## 1. Setup the CLI
 
-Ensure you have Rust installed. Clone the repository and build the `clawc` CLI tool.
+Ensure you have Rust installed. Clone the repository and build the `claw` CLI tool.
 ```bash
-git clone https://github.com/open-code/openclaw.git
+git clone https://github.com/open-code/claw.git
 cd claw
 cargo install --path .
 ```
 
 Verify the installation:
 ```bash
-clawc --version
-# Output: clawc 1.0.0
+claw --version
+# Output: claw 0.1.0
 ```
 
 ## 2. Compiling your First Agent Pipeline
 
-Create a new file `pipeline.claw` in your project workspace:
+Create a new file `example.claw` in your project workspace:
 ```claw
 type Greeting {
     message: string
 }
 
+client MyClaude {
+    provider = "anthropic"
+    model = "claude-4-sonnet"
+}
+
 agent Greeter {
-    client = OpenAI.GPT_4O_MINI
+    client = MyClaude
     system_prompt = "You are a friendly greeter."
 }
 
@@ -39,43 +44,47 @@ workflow HelloClaw(name: string) -> Greeting {
 }
 ```
 
-Run the compiler pointing to your target SDK language (default: TypeScript).
+Run the compiler to build the project for OpenCode.
 
 ```bash
-clawc build pipeline.claw --lang ts
+claw build example.claw
 ```
 
-If your syntax is correct, `clawc` will silently output a new `generated/claw/` directory into your project, containing strictly-typed `Greeting` interfaces and an async `HelloClaw` network call wrapper.
+If your syntax is correct, `claw` will output an `opencode.json` configuration, a `.opencode/` directory with command templates, and a `generated/` directory with the MCP server.
 
 ## 3. Writing and Running Tests
 
-You shouldn't execute against OpenAI every time your CI/CD pipeline runs. `.claw` supports native JSON mocking so you can test your programmatic orchestration logic locally.
+You can test your programmatic orchestration logic locally before deploying.
 
-In your `pipeline.claw` file, append a `test` block:
+In your `example.claw` file, append a `test` block:
 
 ```claw
-mock Greeter("Say hello to Alice") -> {
-    "message": "Hello there, Alice!"
-}
-
 test "Verify Greeter Workflow" {
-    // This executes entirely offline using the 'mock' block above.
+    // This executes the workflow in test mode
     let response = HelloClaw("Alice")
-    
-    // Test primitives
-    assert(response.message == "Hello there, Alice!")
+    assert(response.message.contains("Alice"))
 }
 ```
 
-To run your tests via the `clawc` CLI:
+To run your tests via the `claw` CLI:
 
 ```bash
-clawc test pipeline.claw
+claw test example.claw
 ```
 
-The CLI will parse the AST, temporarily bypass the Claw Gateway Network layer, inject your JSON mock schemas against the TypeSystem Bouncer, and execute the program flow locally.
+## 4. Development Mode
+
+For rapid iteration, use the `dev` command to watch your source files and auto-rebuild:
+
+```bash
+claw dev
+```
 
 ## What's Next?
-Once your local tests pass, it's time to integrate this AST into real code.
+Once your local tests pass, it's time to run your workflow with OpenCode.
 
-See [PRODUCTION.md](./PRODUCTION.md) to learn how to wire the generated `.ts` SDK into your Next.js/Express app.
+```bash
+opencode /HelloClaw "Alice"
+```
+
+See [PRODUCTION.md](./PRODUCTION.md) to learn how to deploy your Claw project to production.

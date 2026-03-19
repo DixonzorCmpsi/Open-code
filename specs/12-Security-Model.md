@@ -1,6 +1,10 @@
 # Claw Security Model
 
-This document defines the security invariants that apply to every layer of the Claw toolchain: the `clawc` compiler, the Gateway OS, the generated SDKs, and the client libraries. All other specs reference this document for security requirements.
+> **PARTIAL SUPERSESSION:** Sections 2–6 (Gateway runtime security) are superseded by OpenCode's own security layer.
+> See `specs/25-OpenCode-Integration.md §6` for the current security model.
+> **Section 7 (Compiler Security) remains fully active and authoritative.**
+
+This document defines the security invariants for the `clawc` compiler and the generated MCP server. Runtime security (auth, sessions, sandboxing, headers) is delegated to OpenCode.
 
 ---
 

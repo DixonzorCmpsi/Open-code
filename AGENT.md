@@ -4,6 +4,45 @@ This document defines the strict operational rules for any AI Agent (Antigravity
 
 ---
 
+## 0. Product Vision — What We Are Building
+
+**Claw is N8N as code.** It is a statically-typed, deterministic orchestration language that compiles `.claw` source files into native OpenCode configuration. Think of it as the relationship between SQL and a database engine — Claw is the high-level typed language; OpenCode is the execution runtime that runs it.
+
+### The Core Problem
+
+OpenCode is powerful: it supports 75+ LLM providers, has an MCP tool protocol, supports named agents and workflow commands, and can be driven entirely from the CLI. But raw OpenCode configuration is hand-written JSON and markdown — untyped, unverified, and not composable. There is no compile-time guarantee that agent A's output matches agent B's input. There is no control flow, no typed loops, no static analysis.
+
+Claw fixes this. A developer writes `.claw` source once. `clawc` verifies types, validates agent boundaries, and emits the complete OpenCode config bundle. OpenCode executes it.
+
+### The Canonical Use Case
+
+The prototype use case that defines this product:
+
+> A workflow that goes to GitHub, opens VS Code (installing it first if it is not present), implements a list of specified features via a coding agent, pulls credentials from `.env` for any CLI authentication steps, commits each feature, and opens a pull request.
+
+Written as a `.claw` program, compiled with `claw build`, and executed with a single `opencode /AddFeaturesToRepo` command.
+
+### Other Core Use Cases
+
+| Use Case | What It Shows |
+| -------- | ------------- |
+| **Dev environment bootstrap** | Install detection, secret injection from vault, tool orchestration |
+| **Multi-repo dependency audit** | `for` loop over repos, conditional branching on `affected`, auto-PR creation |
+| **Release engineering pipeline** | Multi-step determinism: bump → changelog → publish NPM → publish PyPI → tag → notify Slack |
+| **Automated code review** | CI integration, structured typed output, conditional merge blocking |
+| **Incident response** | Monitoring trigger → log query → runbook lookup → fix → human escalation |
+| **Data pipeline** | Scrape → normalize → validate → deduplicate → write DB, fully typed at each stage |
+
+Full use case specifications with complete `.claw` source examples are in `specs/28-Use-Cases.md`.
+
+### The Determinism Guarantee
+
+Claw workflows are programs, not prompts. `for feature in features` is a real compiler-verified loop — not a suggestion to an LLM. `require_type: PRResult` is a compile-time contract. Secrets are loaded via MCP tool calls, never injected into prompt strings. Every agent boundary is a typed, validated interface.
+
+**Every implementation decision must make the canonical use case simpler, faster, and more reliable to execute.**
+
+---
+
 ## 1. WWDD Gates (Anti-Hallucination Guardrails)
 
 Before committing any code or proposing changes, YOU MUST pass the **What Would Developer Do (WWDD)** gates:
@@ -13,7 +52,7 @@ Before committing any code or proposing changes, YOU MUST pass the **What Would 
 - [ ] **Is state observable?**: Can the changes be verified via `ls`, `grep`, or `cat`? Never invent file paths or internal states.
 - [ ] **Uses existing primitives?**: Are you using Markdown, YAML, and Git appropriately? Do not invent new configuration formats.
 - [ ] **Is it generated/sourced?**: Is this based on `specs/`, transcripts, or verified source files? **YOU MUST read the relevant file in `specs/` BEFORE implementing any module changes.**
-- [ ] **Have you checked the spec?**: If touching `src/parser.rs`, read `specs/03-Grammar.md`. If touching the Gateway, read `specs/07-Claw-OS.md`. If touching auth or security, read `specs/12-Security-Model.md`.
+- [ ] **Have you checked the spec?**: If touching `src/parser.rs`, read `specs/03-Grammar.md`. If touching the MCP server emitter or OpenCode config, read `specs/25-OpenCode-Integration.md` and `specs/26-MCP-Server-Generation.md`. If touching compiler security, read `specs/12-Security-Model.md §7`.
 - [ ] **Have you checked the security model?**: Does your change handle untrusted input safely? (See `specs/12-Security-Model.md`)
 - [ ] **Did you VERIFY, not just claim?**: If you say something is fixed, you MUST have re-read the actual file after your edit to confirm the change is present and handles the specific audit concern. (See §1.1 below.)
 
@@ -59,17 +98,29 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
 - **`src/` (Rust)**: The `clawc` compiler foundation. (Read: `specs/02-Compiler-Architecture.md`)
     - `parser.rs`: `winnow` combinators. (Read: `specs/03-Grammar.md`)
     - `semantic/`: The 3-pass type engine. (Read: `specs/05-Type-System.md`)
-    - `codegen/`: SDK emission via `minijinja`. (Read: `specs/06-CodeGen-SDK.md`)
+    - `codegen/`: SDK emission. (Read: `specs/06-CodeGen-SDK.md`)
+        - `codegen/opencode.rs`: OpenCode config emitter — `opencode.json`, agent/command markdown. (Read: `specs/25-OpenCode-Integration.md`)
+        - `codegen/mcp.rs`: MCP server emitter — `generated/mcp-server.js`. (Read: `specs/26-MCP-Server-Generation.md`)
+        - `codegen/test_runner.rs`: Test runner emitter — `generated/claw-test-runner.js`. (Read: `specs/17-Phase6-Test-Runner-And-Mocks.md §7`)
+        - `codegen/baml.rs`: BAML emitter — `generated/baml_src/`. (Read: `specs/18-BAML-Integration-Layer.md §1-4`)
+        - `codegen/typescript.rs`: TypeScript SDK emitter. (Read: `specs/06-CodeGen-SDK.md`)
+        - `codegen/python.rs`: Python SDK emitter. (Read: `specs/06-CodeGen-SDK.md`)
     - `config.rs`: claw.json configuration. (Read: `specs/14-CLI-Tooling.md`)
     - `lsp.rs`, `bin/claw-lsp.rs`: Language server. (Read: `specs/14-CLI-Tooling.md` Section 6)
-    - `bin/openclaw.rs`: CLI commands (init, build, dev). (Read: `specs/14-CLI-Tooling.md`)
-- **`openclaw-gateway/` (TypeScript)**: The execution "OS". (Read: `specs/07-Claw-OS.md`)
-    - `src/auth.ts`: API key authentication. (Read: `specs/12-Security-Model.md`)
-    - `src/ws.ts`: WebSocket protocol. (Read: `specs/11-WebSocket-Protocol.md`)
-    - `src/engine/`: Traversal, Checkpointing, LLM bridges, Schema validation.
-    - `src/tools/`: Browser automation, Docker sandbox, Vision bridge. (Read: `specs/13-Visual-Intelligence.md`)
-- **`packages/` & `python-sdk/`**: Hand-written client libraries (transport only, no schema validation).
+    - `bin/claw.rs`: CLI commands (init, build, dev, test). (Read: `specs/14-CLI-Tooling.md`)
+- **`archived/openclaw-gateway/`**: The retired TypeScript execution gateway. **DO NOT modify.** Historical reference only. (Was: `specs/07-Claw-OS.md`, now superseded by `specs/25-OpenCode-Integration.md`)
+- **`.opencode/`**: OpenCode agent and command config. Generated by `clawc build --lang opencode`.
+    - `.opencode/agents/*.md`: Per-agent system prompt + settings. (Read: `specs/25-OpenCode-Integration.md §2.3`)
+    - `.opencode/commands/*.md`: Per-workflow command templates. (Read: `specs/25-OpenCode-Integration.md §2.4`)
+    - **PRESERVE** hand-written files with names NOT matching Claw-declared agents/workflows.
 - **`generated/`**: Output of `clawc build`. NEVER edit manually. Add to `.gitignore`.
+    - `generated/mcp-server.js`: MCP tool server — all `tool` blocks. (Read: `specs/26-MCP-Server-Generation.md`)
+    - `generated/claw-context.md`: OpenCode project context doc. (Read: `specs/25-OpenCode-Integration.md §4`)
+    - `generated/claw-test-runner.js`: Offline test runner. (Read: `specs/17-Phase6-Test-Runner-And-Mocks.md §7`)
+    - `generated/claw/index.ts`: TypeScript SDK (from `--lang ts`). (Read: `specs/06-CodeGen-SDK.md`)
+    - `generated/claw/__init__.py`: Python SDK (from `--lang python`). (Read: `specs/06-CodeGen-SDK.md`)
+    - `generated/baml_src/`: BAML project files (from `--lang baml`). (Read: `specs/18-BAML-Integration-Layer.md §4`)
+- **`packages/` & `python-sdk/`**: Hand-written client libraries (transport only, no schema validation).
 - **`specs/`**: **THE SOURCE OF TRUTH.** Any deviation from specs requires a spec update FIRST.
 
 ---
@@ -120,35 +171,42 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
 - **SDK Generation**: Templates MUST emit Zod schemas (TS) and Pydantic models (Py) with runtime `.parse()` / `model_validate()` calls at all boundaries. Type assertions (`as Type`) are NOT sufficient.
 - **Exit Codes**: Map errors to distinct exit codes per `specs/02-Compiler-Architecture.md` Section 5.
 
-### 4.2 The OS & Gateway Layer (`openclaw-gateway`)
+### 4.2 The MCP Server Layer (`generated/mcp-server.js`)
 
-- **Security (ALL rules from `specs/12-Security-Model.md`):**
-  - API key comparison: `crypto.timingSafeEqual()`. NEVER `===` or `!==`.
-  - Request body: enforce `MAX_REQUEST_BODY_SIZE = 1_048_576` before JSON parsing.
-  - Session IDs: `crypto.randomUUID()`. NEVER `Date.now()`.
-  - Tool paths: `fs.realpath()` + workspace containment check.
-  - HTTP responses: include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`.
+> **Architecture change:** The `openclaw-gateway` TypeScript OS is retired (archived). Runtime security,
+> sessions, and WebSocket streaming are delegated to OpenCode. Claw owns only the **compiler** and the
+> **generated MCP server**. Rules below apply to the MCP server generator (`src/codegen/mcp.rs`) and
+> the generated `mcp-server.js`. See `specs/26-MCP-Server-Generation.md` and `specs/25-OpenCode-Integration.md §6`.
 
-- **Checkpointing**: EVERY statement type MUST be checkpointed after execution — including `MethodCall`, `BinaryOp`, and `ArrayLiteral`. No expression type is exempt. See `specs/07-Claw-OS.md` Section 2.6.
+- **Path Safety (MCP server tool handlers):**
+  - All `invoke: module(...)` paths MUST be resolved with `path.resolve()` + `fs.realpath()`.
+  - Containment check: `path.relative(wsRoot, real)` MUST NOT start with `..` and MUST NOT be absolute.
+  - Fail with `Error("Tool module resolves outside workspace: {module}")` on violation — do NOT proceed with `import()`.
+  - See `specs/26-MCP-Server-Generation.md §5`.
 
-- **Schema Degradation**: A response is degraded ONLY when ALL leaf values are zero-values simultaneously (`""` AND `0` AND `false`). Individual `0`, `false`, or `""` values are valid data, NOT degradation. See `specs/07-Claw-OS.md` Section 2.4.
+- **Input Validation**: MCP tool inputs are pre-validated by the MCP SDK against the `inputSchema`. Handlers MUST NOT trust args without schema validation. Output validation runs `validateOutput()` before returning.
 
-- **LLM API Contracts**:
-  - **OpenAI**: Use Responses API with `text.format.type = "json_schema"`. (Current implementation is correct.)
-  - **Anthropic**: Use `tools` parameter with `input_schema` for constrained output. Extract result from `content[].type === "tool_use"` → `content[].input`. NEVER place `response_schema` inside message content — Anthropic ignores it there. See `specs/07-Claw-OS.md` Section 6.
+- **Error Isolation**: Every tool handler MUST be wrapped in try/catch. Errors return `{ content: [...], isError: true }` — they MUST NOT crash the MCP server process. See `specs/26-MCP-Server-Generation.md §6`.
 
-- **Visual Stability**: Capture screenshots ONLY after the DOM has settled. See `specs/13-Visual-Intelligence.md` Section 1.2.
+- **No External Network**: The MCP server is started as a localhost child process by OpenCode. It has no authority to make outbound network calls. Tool implementations (`invoke: module(...)`) are developer-controlled and may make network calls — but the MCP server scaffold itself does not.
 
-- **Graceful Shutdown**: On SIGTERM, drain in-flight requests (30s), checkpoint running sessions, close stores. See `specs/07-Claw-OS.md` Section 8.
+### 4.3 OpenCode Config Layer
 
-### 4.3 WebSocket Protocol
+- **Merge Strategy**: `clawc build --lang opencode` MUST use a merge strategy on `opencode.json` — never overwrite. Read existing file, update only Claw-owned fields (`agents.coder.model`, `mcpServers.claw-tools`, `contextPaths`), write back. Preserve all user fields. See `specs/25-OpenCode-Integration.md §3`.
 
-- **Prototype/MVP**: Hand-rolled RFC 6455 is acceptable for development and testing.
-- **Production (v1.0+)**: MUST migrate to the audited `ws` npm library. Hand-rolled WebSocket implementations lack proper fragmentation, extensions, and backpressure handling.
-- **Frame Safety**: Parser MUST bounds-check buffer length before accessing any index. Return "need more data" on incomplete frames, never crash.
-- **Close Frames**: Wait for `socket.write()` callback before calling `socket.end()`.
-- **Version Negotiation**: Use `Sec-WebSocket-Protocol: claw.v1`. The previously proposed `X-Claw-Protocol` header has been **removed**.
-- Full protocol: `specs/11-WebSocket-Protocol.md`.
+- **Correct `opencode.json` field names** (sourced from `opencode/opencode-schema.json`):
+  - Model goes under `agents.coder.model` — NOT a top-level `model` field.
+  - MCP server goes under `mcpServers` — NOT `mcp`. Type is `"stdio"` — NOT `"local"`.
+  - Context file goes in `contextPaths` array — NOT `instructions`. Field `instructions` does not exist.
+  - API keys are NOT emitted — OpenCode reads `ANTHROPIC_API_KEY` etc. from the environment automatically.
+
+- **No `.opencode/agents/*.md`**: OpenCode does NOT support custom agent markdown files. Named agents from `.claw` are implemented as `agent_<Name>` MCP runner tools in `generated/mcp-server.js`. See `specs/25-OpenCode-Integration.md §2.3`.
+
+- **`retries` Warning**: `client` blocks with `retries = N` and `--lang opencode` MUST emit a compiler warning and NOT emit `retries` in `opencode.json`. There is no OpenCode equivalent. See `specs/25-OpenCode-Integration.md §2.1`.
+
+- **Context Document**: The project context file is `generated/claw-context.md` (NOT `AGENTS.md`). Referenced via `"contextPaths": ["generated/claw-context.md"]` in `opencode.json`. See `specs/25-OpenCode-Integration.md §4`.
+
+- **Command argument variables**: OpenCode command files use `$UPPERCASE_NAME` substitution (regex `\$([A-Z][A-Z0-9_]*)`). Workflow parameter `topic` → `$TOPIC`. NOT `$arguments`.
 
 ---
 
@@ -200,14 +258,16 @@ Use this dependency map as your starting checklist:
 
 | If you change... | Check these specs for contradictions |
 |------------------|--------------------------------------|
-| Grammar (`03`) | AST (`04`), Type System (`05`), CLI (`14`), Phase 6 (`15`) |
-| AST structures (`04`) | Grammar (`03`), Type System (`05`), CodeGen (`06`), Phase 6 (`15`) |
-| Type system rules (`05`) | Grammar (`03`), AST (`04`), CodeGen (`06`), Phase 6 (`15`) |
-| CodeGen output format (`06`) | OS/Gateway (`07`), BAML (`18`), CLI (`14`) |
-| Gateway execution contract (`07`) | WebSocket (`11`), Security (`12`), Visual (`13`), Phase 6 Gateway (`16`) |
-| Security rules (`12`) | Gateway (`07`), WebSocket (`11`), CLI (`14`) |
-| Any Phase 6 spec (`15`–`17`) | Core specs (`03`–`06`), GAN Audit (`10`) |
-| GAN Audit findings (`10`) | Every spec the finding references — check it is still accurate |
+| Grammar (`03`) | AST (`04`), Type System (`05`), CLI (`14`), Phase 6 (`15`), Test Runner (`17`) |
+| AST structures (`04`) | Grammar (`03`), Type System (`05`), CodeGen (`06`), Phase 6 (`15`), Test Runner (`17`) |
+| Type system rules (`05`) | Grammar (`03`), AST (`04`), CodeGen (`06`), MCP Gen (`26`) |
+| CodeGen output format (`06`) | OpenCode Integration (`25`), MCP Gen (`26`), BAML (`18`), CLI (`14`) |
+| OpenCode integration contract (`25`) | MCP Gen (`26`), CodeGen (`06`), CLI (`14`), Binary Dist (`19`), Test Runner (`17`) |
+| MCP server generation (`26`) | OpenCode Integration (`25`), Security (`12 §7`), Testing (`08`) |
+| Security rules (`12 §7` — compiler only) | Grammar (`03`), AST (`04`), CLI (`14`) |
+| CLI tooling (`14`) | OpenCode Integration (`25`), Binary Dist (`19`), Test Runner (`17`) |
+| Any Phase 6 spec (`15`–`18`) | Core specs (`03`–`06`), GAN Audit (`10`), OpenCode Integration (`25`) |
+| GAN Audit findings (`10`, `27`) | Every spec the finding references — check it is still accurate |
 
 If the change introduces a new concept (a new keyword, a new node type, a new error variant), trace it through **every spec that touches that concept** — not just the one you are editing.
 
@@ -302,21 +362,34 @@ Never write code to implement a spec change that has unresolved contradictions i
 ---
 
 Refer to `specs/` for detailed architectural requirements:
+
+**Active specs (implement against these):**
 - `specs/01-DSL-Core-Specification.md` — Language design and syntax
 - `specs/02-Compiler-Architecture.md` — Compiler pipeline and constraints
 - `specs/03-Grammar.md` — Formal PEG grammar
 - `specs/04-AST-Structures.md` — Rust AST data structures
 - `specs/05-Type-System.md` — Semantic analysis rules (3-pass)
-- `specs/06-CodeGen-SDK.md` — SDK emission rules
-- `specs/07-Claw-OS.md` — Gateway execution contract
+- `specs/06-CodeGen-SDK.md` — SDK emission rules (TS, Python, OpenCode, BAML targets)
 - `specs/08-Testing-Spec.md` — TDD methodology
 - `specs/09-Implementation-Flow.md` — Build order
-- `specs/10-GAN-Final-Audit.md` — Adversarial audit findings
-- `specs/11-WebSocket-Protocol.md` — Streaming protocol
-- `specs/12-Security-Model.md` — Security invariants
-- `specs/13-Visual-Intelligence.md` — Vision system
+- `specs/12-Security-Model.md §7` — Compiler security invariants (§§2-6 superseded by OpenCode)
 - `specs/14-CLI-Tooling.md` — CLI commands and LSP
-- `specs/15-Phase6-Compiler-Completeness.md` — try/catch, break/continue, binary ops, circular types, exhaustive returns
-- `specs/16-Phase6-Gateway-Hardening.md` — graceful shutdown, visual stability, production WebSocket, rate limiting
-- `specs/17-Phase6-Test-Runner-And-Mocks.md` — claw test command, mock registry, test execution
-- `specs/18-BAML-Integration-Layer.md` — BAML codegen, agent resolution IR, per-call-site functions
+- `specs/15-Phase6-Compiler-Completeness.md` — try/catch, break/continue, binary ops, circular types
+- `specs/17-Phase6-Test-Runner-And-Mocks.md` — claw test command; §7 is the active execution model
+- `specs/18-BAML-Integration-Layer.md §1-4` — BAML codegen emitter (§5 gateway integration superseded)
+- `specs/19-Binary-Distribution.md` — NPM wrapper, binary distribution, proxy support
+- `specs/25-OpenCode-Integration.md` — **PRIMARY EXECUTION OS CONTRACT** — replaces specs/07
+- `specs/26-MCP-Server-Generation.md` — MCP server generation from `tool` blocks
+- `specs/27-GAN-Audit-OpenCode-Migration.md` — Active adversarial audit findings
+
+**Superseded / historical specs (do NOT implement against these):**
+- `specs/07-OpenClaw-OS.md` — SUPERSEDED by `specs/25-OpenCode-Integration.md`
+- `specs/10-GAN-Final-Audit.md` — Historical audit (references retired gateway specs)
+- `specs/11-WebSocket-Protocol.md` — SUPERSEDED (OpenCode handles WebSocket)
+- `specs/13-Visual-Intelligence.md` — SUPERSEDED (OpenCode handles browser tools)
+- `specs/16-Phase6-Gateway-Hardening.md` — SUPERSEDED (gateway retired)
+- `specs/20-GAN-Audit-Binary-Distribution.md` — Historical binary distribution audit
+- `specs/21-GAN-Audit-State-Resumption.md` — SUPERSEDED (gateway checkpoint system retired)
+- `specs/22-Gateway-State-Resumption-Implementation.md` — SUPERSEDED (gateway retired)
+- `specs/23-GAN-Audit-OS-Kernel.md` — SUPERSEDED (gateway retired)
+- `specs/24-GAN-Audit-Sandbox-Containers.md` — SUPERSEDED (OpenCode handles sandboxing)

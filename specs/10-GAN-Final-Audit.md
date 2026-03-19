@@ -58,7 +58,7 @@ After the initial implementation of Phases 1-5, a second adversarial audit was c
 | 3 | Hand-rolled WebSocket crashes on incomplete frames | `ws.ts:parseWebSocketFrame()` | `specs/11-WebSocket-Protocol.md` §3.1 |
 | 4 | WebSocket close frame race condition | `ws.ts:closeWebSocket()` | `specs/11-WebSocket-Protocol.md` §3.3 |
 | 5 | Parser `.expect()` panics on malicious numeric input | `parser.rs:844-846` | `specs/12-Security-Model.md` §7.1 |
-| 6 | Anthropic API schema in wrong position | `llm.ts:callAnthropic()` | `specs/07-Claw-OS.md` §6 |
+| 6 | Anthropic API schema in wrong position | `llm.ts:callAnthropic()` | ARCHIVED — `specs/07-Claw-OS.md` §6 (gateway retired; LLM routing now delegated to OpenCode — see `specs/25-OpenCode-Integration.md §5`) |
 | 7 | Schema degradation false positives on `0` and `false` | `schema.ts:isSchemaDegraded()` | `specs/07-Claw-OS.md` §2.4 |
 | 8 | No Zod/Pydantic in client library SDKs | `index.js`, `__init__.py` | `specs/06-CodeGen-SDK.md` §0 |
 | 9 | Phantom X-Claw-Protocol header requirement | `AGENT.md` | `specs/11-WebSocket-Protocol.md` §9 (REMOVED) |

@@ -41,6 +41,7 @@ pub fn analyze_collecting(document: &Document) -> CompilationReport {
     match SymbolTable::build(document) {
         Ok(symbols) => {
             errors.extend(detect_circular_types(document));
+            errors.extend(detect_circular_agents(document));
             errors.extend(validate_references_collecting(document, &symbols));
 
             if errors.len() < MAX_ERRORS {
@@ -112,6 +113,45 @@ fn check_data_type_cycle(
         DataType::List(inner, _) => check_data_type_cycle(document, inner, path, origin_span, errors),
         DataType::String(_) | DataType::Int(_) | DataType::Float(_) | DataType::Boolean(_) => {}
     }
+}
+
+fn detect_circular_agents(document: &Document) -> Vec<crate::errors::CompilerError> {
+    let mut errors = Vec::new();
+
+    for declaration in &document.agents {
+        let mut path = Vec::new();
+        check_agent_extends_cycle(document, &declaration.name, &mut path, &declaration.span, &mut errors);
+    }
+
+    errors
+}
+
+fn check_agent_extends_cycle(
+    document: &Document,
+    agent_name: &str,
+    path: &mut Vec<String>,
+    origin_span: &crate::ast::Span,
+    errors: &mut Vec<crate::errors::CompilerError>,
+) {
+    if let Some(index) = path.iter().position(|item| item == agent_name) {
+        let mut cycle_path = path[index..].to_vec();
+        cycle_path.push(agent_name.to_owned());
+        errors.push(crate::errors::CompilerError::CyclicDependency {
+            message: format!("circular agent extentions detected: {}", cycle_path.join(" -> ")),
+            span: origin_span.clone(),
+        });
+        return;
+    }
+
+    path.push(agent_name.to_owned());
+
+    if let Some(declaration) = document.agents.iter().find(|item| item.name == agent_name) {
+        if let Some(extends) = &declaration.extends {
+            check_agent_extends_cycle(document, extends, path, origin_span, errors);
+        }
+    }
+
+    path.pop();
 }
 
 fn check_exhaustive_returns(document: &Document) -> Vec<crate::errors::CompilerError> {

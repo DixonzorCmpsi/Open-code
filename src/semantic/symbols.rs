@@ -16,6 +16,7 @@ pub(crate) enum SymbolKind {
     Tool,
     Agent,
     Workflow,
+    Listener,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,7 @@ impl SymbolTable {
         table.register_tools(document)?;
         table.register_agents(document)?;
         table.register_workflows(document)?;
+        table.register_listeners(document)?;
 
         Ok(table)
     }
@@ -124,12 +126,19 @@ impl SymbolTable {
         Ok(())
     }
 
+    fn register_listeners(&mut self, document: &Document) -> CompilerResult<()> {
+        for declaration in &document.listeners {
+            self.register(&declaration.name, SymbolKind::Listener, &declaration.span)?;
+        }
+
+        Ok(())
+    }
+
     fn register(&mut self, name: &str, kind: SymbolKind, span: &Span) -> CompilerResult<()> {
-        if let Some(existing) = self.symbols.get(name) {
-            return Err(CompilerError::DuplicateSymbol {
-                name: name.to_owned(),
-                first_span: existing.span.clone(),
-                second_span: span.clone(),
+        if let Some(_) = self.symbols.get(name) {
+            return Err(CompilerError::DuplicateDeclaration {
+                message: format!("symbol `{name}` is already defined"),
+                span: span.clone(),
             });
         }
 

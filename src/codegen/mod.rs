@@ -1,6 +1,7 @@
-pub mod baml;
 mod python;
 mod typescript;
+pub mod opencode;
+pub mod mcp;
 
 use std::fmt::Write as _;
 
@@ -21,6 +22,14 @@ pub fn generate_ts(document: &Document) -> CompilerResult<String> {
 
 pub fn generate_python(document: &Document) -> CompilerResult<String> {
     python::generate(document)
+}
+
+pub fn generate_opencode(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    opencode::generate(document, output_dir)
+}
+
+pub fn generate_mcp(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    mcp::generate(document, output_dir)
 }
 
 pub fn document_ast_hash(document: &Document) -> String {

@@ -1,8 +1,0 @@
-We have established a robust AST compilation engine and a live Gateway capable of executing native web endpoints via deterministic Python `invoke` overrides. The next phase is implementing native, iterative Agentic Tool Calling. 
-
-Presently, `openclaw-gateway/src/engine/llm.ts` does not serialize or send the `tools` array when querying `callOpenAI` or similar providers. This means the LLM has no knowledge of the tools available to it, causing silent fallback to hallucinated strings (e.g. `youtube.com/watch?v=dQw...`) when trying to generate structured data.
-
-Your task:
-1. Revise `openclaw-gateway/src/engine/llm.ts` to properly serialize `request.tools` into the native API schema (`tools: [{ type: "function", function: {...} }]`) for `callOpenAI` and `callAnthropic`.
-2. Restructure `openclaw-gateway/src/engine/traversal.ts` to introduce an iterative ReAct multi-turn loop. If the LLM generates `tool_calls`, the Gateway must intercept them, evaluate the corresponding tool logic (such as `Browser.navigate`, `Browser.search`, or `invoke: python(...)`), and feed the executed JSON result back to the LLM via `tool` message roles.
-3. The iterative loop should continue until the LLM returns the final, structured `json_schema` content mapped to the exact `.claw` payload requirement.
