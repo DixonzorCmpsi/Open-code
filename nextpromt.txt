@@ -1,23 +1,8 @@
-Incredible work on Step 3! The 3-pass Semantic Analyzer looks fantastic, and holding strict span preservation for targeted error reporting is exactly what we need for a world-class Developer Experience. You successfully completed the hardest theoretical parts of the compiler.
+We have established a robust AST compilation engine and a live Gateway capable of executing native web endpoints via deterministic Python `invoke` overrides. The next phase is implementing native, iterative Agentic Tool Calling. 
 
-We are now ready to finish the project. We will execute the final two steps from [specs/09-Implementation-Flow.md](cci:7://file:///C:/Users/dixon/Desktop/Open-code/specs/09-Implementation-Flow.md:0:0-0:0): **Code Generation** (Step 4) and **The CLI Orchestrator** (Step 5).
+Presently, `openclaw-gateway/src/engine/llm.ts` does not serialize or send the `tools` array when querying `callOpenAI` or similar providers. This means the LLM has no knowledge of the tools available to it, causing silent fallback to hallucinated strings (e.g. `youtube.com/watch?v=dQw...`) when trying to generate structured data.
 
-## Your Instructions for Step 4 & 5:
-
-1. **Review CodeGen Details**:
-   - Carefully review [specs/06-CodeGen-SDK.md](cci:7://file:///c:/Users/dixon/Desktop/Open-code/specs/06-CodeGen-SDK.md:0:0-0:0). This specifies exactly what the output TypeScript/Python strings should look like. 
-
-2. **Step 4: The TypeScript Emitter (`src/codegen/mod.rs` & `typescript.rs`)**:
-   - Following the TDD rules in [CLAUDE.md](cci:7://file:///C:/Users/dixon/Desktop/Open-code/CLAUDE.md:0:0-0:0), instantiate valid dummy `ast::Document` objects with tools, agents, and workflows.
-   - Use `minijinja` (or just clean formatted string manipulation) to walk the validated AST and output the exact TypeScript representation defined in the [06-CodeGen-SDK.md](cci:7://file:///C:/Users/dixon/Desktop/Open-code/specs/06-CodeGen-SDK.md:0:0-0:0) specification. Notice how the AST constraints must be lowered into Zod validators and OpenClaw API wrappers.
-   - For now, you only need to build the **TypeScript** generator snippet. (We will add Python support later).
-   - Write `cargo test` checks to ensure the generated string matches the expected SDK shape.
-
-3. **Step 5: The CLI Orchestrator ([src/main.rs](cci:7://file:///c:/Users/dixon/Desktop/Open-code/src/main.rs:0:0-0:0))**:
-   - Tie the entire 4-stage pipeline together. 
-   - Use `clap` to accept a CLI argument pointing to a `.claw` file (e.g., `clawc build source.claw`).
-   - Run the sequence: `std::fs::read_to_string` -> `parser::parse` -> `semantic::analyze` -> `codegen::generate_ts`.
-   - If the parser or semantic analyzer returns one of our beautiful Span-carrying `CompilerError`s, print a clean, developer-friendly diagnostic to the terminal and exit with code 1. 
-   - If it succeeds, output the generated TypeScript string to `generated/claw/index.ts`.
-
-Finish up Step 4 and Step 5. Let me know when the CLI `cargo run -- build example.claw` works flawlessly end-to-end!
+Your task:
+1. Revise `openclaw-gateway/src/engine/llm.ts` to properly serialize `request.tools` into the native API schema (`tools: [{ type: "function", function: {...} }]`) for `callOpenAI` and `callAnthropic`.
+2. Restructure `openclaw-gateway/src/engine/traversal.ts` to introduce an iterative ReAct multi-turn loop. If the LLM generates `tool_calls`, the Gateway must intercept them, evaluate the corresponding tool logic (such as `Browser.navigate`, `Browser.search`, or `invoke: python(...)`), and feed the executed JSON result back to the LLM via `tool` message roles.
+3. The iterative loop should continue until the LLM returns the final, structured `json_schema` content mapped to the exact `.claw` payload requirement.

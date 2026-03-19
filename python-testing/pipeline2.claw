@@ -1,0 +1,25 @@
+type RpgCharacter {
+    character_name: string
+    level: int
+    is_alive: boolean
+    class_type: string
+    inventory: list<string>
+}
+
+client LocalGameAI {
+    provider = "openai"
+    model = "local-llama-rpg"
+}
+
+agent GameMaster {
+    client = LocalGameAI
+    system_prompt = "You are a dungeon master generating characters."
+}
+
+workflow GenerateCharacter(theme: string) -> RpgCharacter {
+    let hero: RpgCharacter = execute GameMaster.run(
+        task: "Create a level 5 ${theme} character.",
+        require_type: RpgCharacter
+    )
+    return hero
+}

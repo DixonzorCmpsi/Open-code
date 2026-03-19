@@ -1,0 +1,43 @@
+client QwenAI {
+    provider = "openai"
+    model = "Qwen2.5-Coder-7B-Instruct-Q4_K_M"
+    endpoint = "http://localhost/v1/chat/completions"
+    api_key = "sk-deb9a31dabf973bc9aae99b28b52d66f7877a8ec02be4983"
+}
+
+tool BrowserSearch(query: string) -> string
+tool BrowserNavigate(url: string) -> string
+
+type WebResult {
+    success: boolean
+    video_url: string
+    summary: string
+}
+
+agent OrchestratorAgent {
+    client = QwenAI
+    system_prompt = "You are a deterministic web orchestration bot."
+    tools = [BrowserSearch, BrowserNavigate]
+}
+
+workflow ExecuteNativeBrowserOrchestration(task: string) -> WebResult {
+    let final_evidence: WebResult = execute OrchestratorAgent.run(
+        task: task,
+        require_type: WebResult
+    )
+    return final_evidence
+}
+
+mock OrchestratorAgent {
+    success: true,
+    video_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    summary: "Natively executed offline Web Orchestration Workflow!",
+}
+
+test "Verify Web Orchestrator Native DSL Compiler Interpreter" {
+    let result = ExecuteNativeBrowserOrchestration("Find the coolest coding video")
+    
+    // The DSL natively handles the mock intercept and variables locally!
+    assert(result.success == true, "Must correctly intercept mock success payload")
+    assert(result.video_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "Link matching assertion")
+}

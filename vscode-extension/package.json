@@ -11,6 +11,13 @@
     "Programming Languages"
   ],
   "contributes": {
+    "iconThemes": [
+      {
+        "id": "claw-theme",
+        "label": "Claw File Icons",
+        "path": "./icon-theme.json"
+      }
+    ],
     "languages": [
       {
         "id": "claw",

@@ -152,24 +152,38 @@ async function ensureNoCaptcha(
   throw new HumanInterventionRequiredError(event);
 }
 
-async function loadBrowser(): Promise<{ chromium: { launch(options: { headless: boolean }): Promise<BrowserRuntime> } } | null> {
+async function loadBrowser(): Promise<{ chromium: { launch(options: { headless: boolean }): Promise<BrowserRuntime>, launchPersistentContext(userDataDir: string, options: any): Promise<BrowserRuntime> } } | null> {
   if (!playwrightModulePromise) {
     playwrightModulePromise = import("playwright")
       .then(
         (module) =>
-          module as { chromium: { launch(options: { headless: boolean }): Promise<BrowserRuntime> } }
+          module as any
       )
       .catch(() => null);
   }
 
-  return playwrightModulePromise;
+  return playwrightModulePromise as any;
 }
 
 async function getBrowserRuntime(): Promise<BrowserRuntime | null> {
   if (!browserRuntimePromise) {
-    browserRuntimePromise = loadBrowser().then((browser) =>
-      browser ? browser.chromium.launch({ headless: true }) : null
-    );
+    browserRuntimePromise = loadBrowser().then(async (browser) => {
+      if (!browser) return null;
+      try {
+        console.log("[Claw OS Browser] Binding to local Chrome Profile...");
+        return await browser.chromium.launchPersistentContext(
+            "C:\\Users\\dixon\\AppData\\Local\\Google\\Chrome\\User Data", 
+            {
+                channel: "chrome",
+                headless: false,
+                args: ["--profile-directory=Default"]
+            }
+        );
+      } catch (e) {
+        console.error("[Claw OS Browser] Persistent profile locked (Chrome running?), falling back to headless.", e);
+        return await browser.chromium.launch({ headless: true });
+      }
+    });
   }
 
   return browserRuntimePromise;

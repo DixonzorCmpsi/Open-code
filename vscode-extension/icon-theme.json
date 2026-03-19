@@ -1,0 +1,10 @@
+{
+  "iconDefinitions": {
+    "_claw": {
+      "iconPath": "./images/claw-icon.png"
+    }
+  },
+  "fileExtensions": {
+    "claw": "_claw"
+  }
+}

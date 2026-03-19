@@ -13,9 +13,10 @@ interface LlmBridgeRequest {
 }
 
 export async function generateStructuredResult(request: LlmBridgeRequest): Promise<unknown> {
-  const candidate =
-    (await tryProviderBridge(request)) ??
-    createMockResponse(request.returnSchema, request.kwargs, []);
+  const candidate = await tryProviderBridge(request);
+  if (!candidate) {
+    throw new Error("[Claw Engine] AI Provider Bridge failed to generate a valid response! Is your Local LLM running on localhost?");
+  }
 
   validateAgainstSchema(candidate, request.returnSchema);
   if (isSchemaDegraded(candidate, request.returnSchema)) {
@@ -45,50 +46,67 @@ async function callOpenAI(request: LlmBridgeRequest): Promise<unknown> {
     resolveClientString(request.client?.endpoint, process.env.OPENAI_BASE_URL) ??
     "https://api.openai.com/v1/responses";
   const apiKey = resolveClientString(request.client?.api_key, process.env.OPENAI_API_KEY);
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: request.client!.model,
-      input: [
-        {
-          role: "system",
-          content: request.agent.system_prompt ?? "You are a deterministic Claw execution agent."
-        },
-        {
-          role: "user",
-          content: JSON.stringify(request.kwargs)
-        }
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: request.returnType?.name ?? "ClawResult",
-          schema: request.returnSchema
-        }
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    throw new Error(`OpenAI API returned ${response.status}: ${errorBody}`);
-  }
-
-  const payload = await response.json();
-  const text = payload.output_text ?? payload.output?.[0]?.content?.[0]?.text;
-  if (!text) {
-    return null;
-  }
-
+  
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  
   try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`OpenAI returned non-JSON response: ${text.slice(0, 200)}`);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: request.client!.model,
+        messages: [
+          {
+            role: "system",
+            content: request.agent.system_prompt ?? "You are a deterministic Claw execution agent."
+          },
+          {
+            role: "user",
+            content: JSON.stringify(request.kwargs)
+          }
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: request.returnType?.name ?? "ClawResult",
+            schema: request.returnSchema
+          }
+        }
+      })
+    });
+    
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(`OpenAI API returned ${response.status}: ${errorBody}`);
+    }
+
+    const payload = await response.json();
+    const text = payload.choices?.[0]?.message?.content ?? payload.output_text ?? payload.output?.[0]?.content?.[0]?.text;
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`OpenAI returned non-JSON response: ${text.slice(0, 200)}`);
+    }
+  } catch (error) {
+    clearTimeout(timeout);
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`OpenAI API request timed out after 120s`);
+    }
+    throw error;
   }
+
+
 }
 
 /**

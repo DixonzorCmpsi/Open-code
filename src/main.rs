@@ -18,6 +18,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Build(BuildArgs),
+    Test(TestArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
@@ -33,6 +34,11 @@ struct BuildArgs {
     lang: Language,
 }
 
+#[derive(Debug, clap::Args)]
+struct TestArgs {
+    source: PathBuf,
+}
+
 fn main() {
     if let Err(error) = run(Cli::parse()) {
         eprintln!("{error}");
@@ -43,7 +49,17 @@ fn main() {
 fn run(cli: Cli) -> Result<(), String> {
     match cli.command {
         Commands::Build(args) => run_build(args).map(|_| ()),
+        Commands::Test(args) => run_test(args),
     }
+}
+
+fn run_test(args: TestArgs) -> Result<(), String> {
+    let source = read_source_file(&args.source).map_err(|error| error.to_string())?;
+    let document = compile_document(&source)
+        .map_err(|error| format_compiler_error(&args.source, &source, &error))?;
+
+    clawc::eval::evaluate_tests(&document).map_err(|error| format_compiler_error(&args.source, &source, &error))?;
+    Ok(())
 }
 
 fn run_build(args: BuildArgs) -> Result<PathBuf, String> {

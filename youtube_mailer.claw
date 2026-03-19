@@ -1,0 +1,34 @@
+client LocalLLM {
+    provider = "openai"
+    model = "Qwen2.5-Coder-7B-Instruct-Q4_K_M"
+    endpoint = "http://localhost/v1/chat/completions"
+    api_key = "sk-deb9a31dabf973bc9aae99b28b52d66f7877a8ec02be4983"
+}
+
+type Evidence {
+    success: boolean
+    extracted_link: string
+}
+
+// 1. We define the Execution Mapping inside the DSL referencing the physical tool logic
+tool ScrapeYoutubeAndEmail() -> Evidence {
+    invoke: python("scripts/youtube_scraper.py")
+}
+
+// 2. We define the AI Sandbox limits
+agent BrowserAutomationEngine {
+    client = LocalLLM
+    system_prompt = "You are an automated orchestration system."
+    tools = [ScrapeYoutubeAndEmail]
+}
+
+// 3. We define the workflow natively executing inside the CLI!
+workflow RetrieveHistoryAndEmail(email_account: string) -> Evidence {
+    // The DSL executes this natively inside the sandbox, triggering the physical Chrome Profile!
+    let browser_state: Evidence = execute BrowserAutomationEngine.run(
+        instruction: "Read your tools and execute the Youtube Scraper without requiring any additional input.",
+        require_type: Evidence
+    )
+
+    return browser_state
+}

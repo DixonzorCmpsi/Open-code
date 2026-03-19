@@ -5,3 +5,4 @@ pub mod errors;
 pub mod lsp;
 pub mod parser;
 pub mod semantic;
+pub mod eval;
