@@ -7,11 +7,11 @@ pub(super) fn generate(document: &Document) -> CompilerResult<String> {
     let mut sections = vec![[
         "from typing import List",
         "",
-        "from openclaw_sdk import OpenClawClient",
+        "from claw_sdk import ClawClient",
         "from pydantic import BaseModel, Field",
     ]
     .join("\n")];
-    sections.push(format!(r#"OPENCLAW_AST_HASH = "{document_hash}""#));
+    sections.push(format!(r#"CLAW_AST_HASH = "{document_hash}""#));
 
     for declaration in &document.types {
         sections.push(render_model(declaration)?);
@@ -84,7 +84,7 @@ fn render_workflow(workflow: &WorkflowDecl) -> String {
         .unwrap_or_else(|| "    return None".to_owned());
 
     format!(
-        "async def {}(\n{}    client: OpenClawClient,\n    resume_session_id: str | None = None,\n) -> {}:\n    result_dict = await client.execute_workflow(\n        workflow_name=\"{}\",\n        arguments={},\n        ast_hash=OPENCLAW_AST_HASH,\n        resume_session_id=resume_session_id,\n    )\n\n{}",
+        "async def {}(\n{}    client: ClawClient,\n    resume_session_id: str | None = None,\n) -> {}:\n    result_dict = await client.execute_workflow(\n        workflow_name=\"{}\",\n        arguments={},\n        ast_hash=CLAW_AST_HASH,\n        resume_session_id=resume_session_id,\n    )\n\n{}",
         to_snake_case(&workflow.name),
         argument_lines,
         return_type,
@@ -222,7 +222,7 @@ mod tests {
     }
 
     fn normalize_ast_hash(output: &str) -> String {
-        let prefix = r#"OPENCLAW_AST_HASH = ""#;
+        let prefix = r#"CLAW_AST_HASH = ""#;
         let Some(pos) = output.find(prefix) else {
             return output.to_owned();
         };
@@ -241,10 +241,10 @@ mod tests {
         insta::assert_snapshot!(normalize_ast_hash(&output), @r#"
         from typing import List
 
-        from openclaw_sdk import OpenClawClient
+        from claw_sdk import ClawClient
         from pydantic import BaseModel, Field
 
-        OPENCLAW_AST_HASH = "<ast_hash>"
+        CLAW_AST_HASH = "<ast_hash>"
 
         class SearchResult(BaseModel):
             url: str = Field(pattern=r"^https://")
@@ -254,13 +254,13 @@ mod tests {
 
         async def analyze_competitors(
             company: str,
-            client: OpenClawClient,
+            client: ClawClient,
             resume_session_id: str | None = None,
         ) -> SearchResult:
             result_dict = await client.execute_workflow(
                 workflow_name="AnalyzeCompetitors",
                 arguments={"company": company},
-                ast_hash=OPENCLAW_AST_HASH,
+                ast_hash=CLAW_AST_HASH,
                 resume_session_id=resume_session_id,
             )
 

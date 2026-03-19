@@ -1,12 +1,12 @@
-# OpenClaw Security Model
+# Claw Security Model
 
-This document defines the security invariants that apply to every layer of the OpenClaw toolchain: the `clawc` compiler, the Gateway OS, the generated SDKs, and the client libraries. All other specs reference this document for security requirements.
+This document defines the security invariants that apply to every layer of the Claw toolchain: the `clawc` compiler, the Gateway OS, the generated SDKs, and the client libraries. All other specs reference this document for security requirements.
 
 ---
 
 ## 1. Threat Model
 
-OpenClaw has three trust boundaries:
+Claw has three trust boundaries:
 
 | Boundary | Untrusted Input | Component |
 |----------|----------------|-----------|
@@ -199,7 +199,7 @@ Every Docker sandbox execution MUST include:
 
 ### 6.3 Exit Code Mapping
 
-| Exit Code | Meaning | OpenClaw Error |
+| Exit Code | Meaning | Claw Error |
 |-----------|---------|----------------|
 | 0 | Success | — |
 | 1 | General error | `ToolExecutionError` |

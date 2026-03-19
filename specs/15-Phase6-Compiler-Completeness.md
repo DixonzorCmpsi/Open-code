@@ -48,7 +48,7 @@ try_stmt = { "try" ~ block ~ "catch" ~ "(" ~ identifier ~ ":" ~ data_type ~ ")" 
 ```
 The catch type is **REQUIRED** (not optional). This resolves the three-way contradiction between spec 03 (optional), spec 04 (Option), and this spec (required).
 
-**Rationale:** OpenClaw has no `any` or `dynamic` type. An untyped catch binding would create an untypeable variable. Requiring explicit types keeps the type system sound.
+**Rationale:** Claw has no `any` or `dynamic` type. An untyped catch binding would create an untypeable variable. Requiring explicit types keeps the type system sound.
 
 ### Spec 04 AST Update (MANDATORY)
 

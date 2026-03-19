@@ -1,6 +1,6 @@
-# OpenClaw WebSocket Streaming Protocol
+# Claw WebSocket Streaming Protocol
 
-This document defines the bidirectional WebSocket protocol used by the OpenClaw Gateway to stream workflow execution events to connected clients in real time.
+This document defines the bidirectional WebSocket protocol used by the Claw Gateway to stream workflow execution events to connected clients in real time.
 
 ---
 
@@ -26,17 +26,17 @@ wss://host:port/workflows/stream  (production with TLS)
 
 ### 2.1 Handshake
 
-Standard RFC 6455 handshake with OpenClaw extensions:
+Standard RFC 6455 handshake with Claw extensions:
 
 **Required Headers (Client → Server):**
 - `Upgrade: websocket`
 - `Connection: Upgrade`
 - `Sec-WebSocket-Key: <base64-encoded 16-byte nonce>`
 - `Sec-WebSocket-Version: 13`
-- `Sec-WebSocket-Protocol: openclaw.v1`
+- `Sec-WebSocket-Protocol: claw.v1`
 
 **Authentication (one of):**
-- `x-openclaw-key: <api-key>`
+- `x-claw-key: <api-key>`
 - `Authorization: Bearer <api-key>`
 
 Authentication follows the rules in `specs/12-Security-Model.md` Section 2.
@@ -44,7 +44,7 @@ Authentication follows the rules in `specs/12-Security-Model.md` Section 2.
 **Response (Server → Client):**
 - `HTTP/1.1 101 Switching Protocols`
 - `Sec-WebSocket-Accept: <computed-accept-key>`
-- `Sec-WebSocket-Protocol: openclaw.v1`
+- `Sec-WebSocket-Protocol: claw.v1`
 
 ### 2.2 Connection States
 
@@ -230,8 +230,8 @@ If a WebSocket connection drops mid-execution:
 
 ---
 
-## 9. Removed: X-OpenClaw-Protocol Header
+## 9. Removed: X-Claw-Protocol Header
 
-The previously proposed `X-OpenClaw-Protocol` semver header has been **removed** from the protocol. Version negotiation is handled via the standard `Sec-WebSocket-Protocol: openclaw.v1` header during the handshake.
+The previously proposed `X-Claw-Protocol` semver header has been **removed** from the protocol. Version negotiation is handled via the standard `Sec-WebSocket-Protocol: claw.v1` header during the handshake.
 
 **Rationale:** Custom version headers on WebSocket connections add complexity without value. The standard subprotocol mechanism is sufficient and understood by all WebSocket libraries and proxies.

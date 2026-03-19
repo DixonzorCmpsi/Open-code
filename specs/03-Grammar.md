@@ -1,4 +1,4 @@
-# OpenClaw DSL: Formal Grammar (PEG)
+# Claw DSL: Formal Grammar (PEG)
 
 This document defines the formal Parsing Expression Grammar (PEG) that the `clawc` lexer and parser will use (via `pest` or `winnow`).
 

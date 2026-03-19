@@ -111,7 +111,7 @@ export function validateAgainstSchema(value: unknown, schema: TypeBoxSchema, pat
  * boolean is false). Individual 0, false, or "" values are NOT degraded —
  * they are legitimate data.
  *
- * Per specs/07-OpenClaw-OS.md Section 2.4.
+ * Per specs/07-Claw-OS.md Section 2.4.
  */
 export function isSchemaDegraded(value: unknown, schema?: TypeBoxSchema): boolean {
   if (value == null) {

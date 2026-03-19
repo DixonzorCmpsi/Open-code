@@ -231,7 +231,7 @@ mod tests {
         let mut document = valid_document();
         document.imports.push(ImportDecl {
             names: vec!["ImportedTool".to_owned()],
-            source: "@openclaw/tools.browser".to_owned(),
+            source: "@claw/tools.browser".to_owned(),
             span: 0..22,
         });
         document.agents[0].tools.push("ImportedTool".to_owned());

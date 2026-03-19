@@ -1,4 +1,4 @@
-# OpenClaw DSL: The Visionary Future (Code as Liability)
+# Claw DSL: The Visionary Future (Code as Liability)
 
 *Drafted from the perspective of a Perpetual Imaginer.*
 
@@ -46,7 +46,7 @@ workflow EmployeeDashboard(request: string) -> UIState {
 }
 ```
 
-The OpenClaw Gateway receives this `UIState`, dynamically spins up a temporary V8 isolate (or a WebContainer in the browser), mounts the generated HTML/JS, and renders it to the user. The "Software" only existed for 5 minutes. No GitHub repo. No CI/CD pipelines. No maintenance.
+The Claw Gateway receives this `UIState`, dynamically spins up a temporary V8 isolate (or a WebContainer in the browser), mounts the generated HTML/JS, and renders it to the user. The "Software" only existed for 5 minutes. No GitHub repo. No CI/CD pipelines. No maintenance.
 
 ---
 
@@ -60,7 +60,7 @@ But if the Rust compiler (`clawc`) is exposed *as a tool* to the agents themselv
 2. The Manager writes a new `.claw` file defining three sub-agents and a new workflow.
 3. The Manager calls the `clawc` tool.
 4. If `clawc` throws a compile-time type error, the Manager gets the error and fixes its own `.claw` code.
-5. If it compiles successfully, the OpenClaw Gateway hot-reloads the new generated SDK instance, and the new topology begins executing.
+5. If it compiles successfully, the Claw Gateway hot-reloads the new generated SDK instance, and the new topology begins executing.
 
 This allows the system to deterministically reshape its own physical execution boundaries based on the complexity of the current problem.
 
@@ -102,5 +102,5 @@ Because the Bouncer strictly enforces `CleanCustomerData`, the rest of our appli
 
 ## Next Steps for the Organ
 To build towards this future, the immediate next specs needed are:
-1. **Dynamic Environment Spec**: Defining how the OpenClaw Gateway can securely spin up ephemeral V8 Isolates/WebContainers based on agent-generated code execution blocks.
-2. **The `openclaw-sdk` Spec**: Defining exactly how the developer writes their business logic in Python/TypeScript and how it hot-plugs into the generated `clawc` output.
+1. **Dynamic Environment Spec**: Defining how the Claw Gateway can securely spin up ephemeral V8 Isolates/WebContainers based on agent-generated code execution blocks.
+2. **The `claw-sdk` Spec**: Defining exactly how the developer writes their business logic in Python/TypeScript and how it hot-plugs into the generated `clawc` output.

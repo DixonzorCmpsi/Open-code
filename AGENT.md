@@ -1,4 +1,4 @@
-# OpenClaw AGENT Rules (`AGENT.md`)
+# Claw AGENT Rules (`AGENT.md`)
 
 This document defines the strict operational rules for any AI Agent (Antigravity, Claude, Codex) contributing to the `Open-code` repository. **Adherence is non-negotiable for project stability, security, and world-class DX.**
 
@@ -13,7 +13,7 @@ Before committing any code or proposing changes, YOU MUST pass the **What Would 
 - [ ] **Is state observable?**: Can the changes be verified via `ls`, `grep`, or `cat`? Never invent file paths or internal states.
 - [ ] **Uses existing primitives?**: Are you using Markdown, YAML, and Git appropriately? Do not invent new configuration formats.
 - [ ] **Is it generated/sourced?**: Is this based on `specs/`, transcripts, or verified source files? **YOU MUST read the relevant file in `specs/` BEFORE implementing any module changes.**
-- [ ] **Have you checked the spec?**: If touching `src/parser.rs`, read `specs/03-Grammar.md`. If touching the Gateway, read `specs/07-OpenClaw-OS.md`. If touching auth or security, read `specs/12-Security-Model.md`.
+- [ ] **Have you checked the spec?**: If touching `src/parser.rs`, read `specs/03-Grammar.md`. If touching the Gateway, read `specs/07-Claw-OS.md`. If touching auth or security, read `specs/12-Security-Model.md`.
 - [ ] **Have you checked the security model?**: Does your change handle untrusted input safely? (See `specs/12-Security-Model.md`)
 - [ ] **Did you VERIFY, not just claim?**: If you say something is fixed, you MUST have re-read the actual file after your edit to confirm the change is present and handles the specific audit concern. (See §1.1 below.)
 
@@ -63,7 +63,7 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
     - `config.rs`: claw.json configuration. (Read: `specs/14-CLI-Tooling.md`)
     - `lsp.rs`, `bin/claw-lsp.rs`: Language server. (Read: `specs/14-CLI-Tooling.md` Section 6)
     - `bin/openclaw.rs`: CLI commands (init, build, dev). (Read: `specs/14-CLI-Tooling.md`)
-- **`openclaw-gateway/` (TypeScript)**: The execution "OS". (Read: `specs/07-OpenClaw-OS.md`)
+- **`openclaw-gateway/` (TypeScript)**: The execution "OS". (Read: `specs/07-Claw-OS.md`)
     - `src/auth.ts`: API key authentication. (Read: `specs/12-Security-Model.md`)
     - `src/ws.ts`: WebSocket protocol. (Read: `specs/11-WebSocket-Protocol.md`)
     - `src/engine/`: Traversal, Checkpointing, LLM bridges, Schema validation.
@@ -129,17 +129,17 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
   - Tool paths: `fs.realpath()` + workspace containment check.
   - HTTP responses: include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`.
 
-- **Checkpointing**: EVERY statement type MUST be checkpointed after execution — including `MethodCall`, `BinaryOp`, and `ArrayLiteral`. No expression type is exempt. See `specs/07-OpenClaw-OS.md` Section 2.6.
+- **Checkpointing**: EVERY statement type MUST be checkpointed after execution — including `MethodCall`, `BinaryOp`, and `ArrayLiteral`. No expression type is exempt. See `specs/07-Claw-OS.md` Section 2.6.
 
-- **Schema Degradation**: A response is degraded ONLY when ALL leaf values are zero-values simultaneously (`""` AND `0` AND `false`). Individual `0`, `false`, or `""` values are valid data, NOT degradation. See `specs/07-OpenClaw-OS.md` Section 2.4.
+- **Schema Degradation**: A response is degraded ONLY when ALL leaf values are zero-values simultaneously (`""` AND `0` AND `false`). Individual `0`, `false`, or `""` values are valid data, NOT degradation. See `specs/07-Claw-OS.md` Section 2.4.
 
 - **LLM API Contracts**:
   - **OpenAI**: Use Responses API with `text.format.type = "json_schema"`. (Current implementation is correct.)
-  - **Anthropic**: Use `tools` parameter with `input_schema` for constrained output. Extract result from `content[].type === "tool_use"` → `content[].input`. NEVER place `response_schema` inside message content — Anthropic ignores it there. See `specs/07-OpenClaw-OS.md` Section 6.
+  - **Anthropic**: Use `tools` parameter with `input_schema` for constrained output. Extract result from `content[].type === "tool_use"` → `content[].input`. NEVER place `response_schema` inside message content — Anthropic ignores it there. See `specs/07-Claw-OS.md` Section 6.
 
 - **Visual Stability**: Capture screenshots ONLY after the DOM has settled. See `specs/13-Visual-Intelligence.md` Section 1.2.
 
-- **Graceful Shutdown**: On SIGTERM, drain in-flight requests (30s), checkpoint running sessions, close stores. See `specs/07-OpenClaw-OS.md` Section 8.
+- **Graceful Shutdown**: On SIGTERM, drain in-flight requests (30s), checkpoint running sessions, close stores. See `specs/07-Claw-OS.md` Section 8.
 
 ### 4.3 WebSocket Protocol
 
@@ -147,14 +147,14 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
 - **Production (v1.0+)**: MUST migrate to the audited `ws` npm library. Hand-rolled WebSocket implementations lack proper fragmentation, extensions, and backpressure handling.
 - **Frame Safety**: Parser MUST bounds-check buffer length before accessing any index. Return "need more data" on incomplete frames, never crash.
 - **Close Frames**: Wait for `socket.write()` callback before calling `socket.end()`.
-- **Version Negotiation**: Use `Sec-WebSocket-Protocol: openclaw.v1`. The previously proposed `X-OpenClaw-Protocol` header has been **removed**.
+- **Version Negotiation**: Use `Sec-WebSocket-Protocol: claw.v1`. The previously proposed `X-Claw-Protocol` header has been **removed**.
 - Full protocol: `specs/11-WebSocket-Protocol.md`.
 
 ---
 
 ## 5. IDE & Tooling
 
-- **Watch Mode**: `openclaw dev` orchestrates the local hot-reload loop (compiler watch + gateway child process). See `specs/14-CLI-Tooling.md` Section 4.
+- **Watch Mode**: `claw dev` orchestrates the local hot-reload loop (compiler watch + gateway child process). See `specs/14-CLI-Tooling.md` Section 4.
 - **LSP Foundation**: Keep `claw-lsp` in sync with `clawc` parser/analyzer changes. The LSP reuses `parser::parse()` and `semantic::analyze()` — no code duplication. See `specs/14-CLI-Tooling.md` Section 6.
 - **Error Formatting**: All compiler errors MUST include file path, line, column, source line text, and a caret (`^`) pointing to the error span.
 
@@ -253,7 +253,7 @@ You MUST complete this checklist and include it in your report before any spec e
 - [ ] specs/04-AST-Structures.md — [affected / not affected, and why]
 - [ ] specs/05-Type-System.md — [affected / not affected, and why]
 - [ ] specs/06-CodeGen-SDK.md — [affected / not affected, and why]
-- [ ] specs/07-OpenClaw-OS.md — [affected / not affected, and why]
+- [ ] specs/07-Claw-OS.md — [affected / not affected, and why]
 - [ ] specs/10-GAN-Final-Audit.md — [affected / not affected, and why]
 - [ ] specs/15-Phase6-Compiler-Completeness.md — [affected / not affected, and why]
 - [Any other spec from the dependency map above]
@@ -308,7 +308,7 @@ Refer to `specs/` for detailed architectural requirements:
 - `specs/04-AST-Structures.md` — Rust AST data structures
 - `specs/05-Type-System.md` — Semantic analysis rules (3-pass)
 - `specs/06-CodeGen-SDK.md` — SDK emission rules
-- `specs/07-OpenClaw-OS.md` — Gateway execution contract
+- `specs/07-Claw-OS.md` — Gateway execution contract
 - `specs/08-Testing-Spec.md` — TDD methodology
 - `specs/09-Implementation-Flow.md` — Build order
 - `specs/10-GAN-Final-Audit.md` — Adversarial audit findings
@@ -318,5 +318,5 @@ Refer to `specs/` for detailed architectural requirements:
 - `specs/14-CLI-Tooling.md` — CLI commands and LSP
 - `specs/15-Phase6-Compiler-Completeness.md` — try/catch, break/continue, binary ops, circular types, exhaustive returns
 - `specs/16-Phase6-Gateway-Hardening.md` — graceful shutdown, visual stability, production WebSocket, rate limiting
-- `specs/17-Phase6-Test-Runner-And-Mocks.md` — openclaw test command, mock registry, test execution
+- `specs/17-Phase6-Test-Runner-And-Mocks.md` — claw test command, mock registry, test execution
 - `specs/18-BAML-Integration-Layer.md` — BAML codegen, agent resolution IR, per-call-site functions

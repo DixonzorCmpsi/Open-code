@@ -433,7 +433,11 @@ test("engine resumes a waiting browser session after manual override", async () 
     // Allow Windows SQLite WAL to flush before destroying the temp folder
     await new Promise((r) => setTimeout(r, 250));
   } finally {
-    rmSync(tempDir, { recursive: true, force: true, maxRetries: 5 });
+    try {
+      rmSync(tempDir, { recursive: true, force: true, maxRetries: 5 });
+    } catch {
+      // ignore
+    }
   }
 });
 

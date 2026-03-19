@@ -1,4 +1,4 @@
-# OpenClaw Compiler: Testing Specification
+# Claw Compiler: Testing Specification
 
 This document defines the strict testing methodology for the `.claw` compiler (`clawc`). We utilize a 100% Test-Driven Development (TDD) approach. 
 
@@ -8,7 +8,7 @@ This document defines the strict testing methodology for the `.claw` compiler (`
 
 The exact workflow for every feature:
 
-1. **Read the spec.** If building a parser combinator, read `specs/03-Grammar.md`. If touching the gateway, read `specs/07-OpenClaw-OS.md`. If touching security, read `specs/12-Security-Model.md`.
+1. **Read the spec.** If building a parser combinator, read `specs/03-Grammar.md`. If touching the gateway, read `specs/07-Claw-OS.md`. If touching security, read `specs/12-Security-Model.md`.
 2. **Write the test.** Create the `#[test]` or `test()` block with explicit assertions on inputs and expected outputs. Include BOTH happy path and error path tests.
 3. **Run the test suite — confirm FAILURE (red).** The test must fail because the implementation doesn't exist yet. If it passes, you're testing something that already works or your test is wrong.
 4. **Write the MINIMUM code** to make the test pass. No extra features, no premature abstractions.

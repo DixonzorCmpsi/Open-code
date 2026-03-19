@@ -1,6 +1,6 @@
-# OpenClaw Visual Intelligence System
+# Claw Visual Intelligence System
 
-This document specifies the screenshot capture pipeline and multimodal LLM vision bridge used by OpenClaw browser automation agents to interact with visual elements when CSS selectors fail.
+This document specifies the screenshot capture pipeline and multimodal LLM vision bridge used by Claw browser automation agents to interact with visual elements when CSS selectors fail.
 
 ---
 
@@ -108,7 +108,7 @@ When the browser tool detects a CAPTCHA or verification challenge (keywords: "ca
 5. Wait for a human override via `POST /sessions/{id}/override`
 6. Resume execution with the override payload
 
-This flow is defined in `specs/07-OpenClaw-OS.md` and `specs/10-GAN-Final-Audit.md` (Attack 3).
+This flow is defined in `specs/07-Claw-OS.md` and `specs/10-GAN-Final-Audit.md` (Attack 3).
 
 ---
 

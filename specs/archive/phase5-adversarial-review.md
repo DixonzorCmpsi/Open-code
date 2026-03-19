@@ -21,7 +21,7 @@ In this review, I am adopting the persona of a pragmatic, deeply experienced Pri
 > "But how do we solve that? We can't write a regex for every valid URL in the world."
 
 **Attacker:**
-> "You don't. You solve it through the Execution OS. You must mutate `openclaw-os.md` to dictate that every Tool Execution is automatically wrapped in a lightweight LLM Validation loop *before* crashing the pipeline, or the compiler must support validation constraints (like Zod `.refine()`) on the primitive types in `type-system.md`."
+> "You don't. You solve it through the Execution OS. You must mutate `claw-os.md` to dictate that every Tool Execution is automatically wrapped in a lightweight LLM Validation loop *before* crashing the pipeline, or the compiler must support validation constraints (like Zod `.refine()`) on the primitive types in `type-system.md`."
 
 **Verdict: ATTACKER WINS.**
 *Requirement:* We must mutate `grammar.md` and `type-system.md` to allow custom regex or validation blocks on custom types to catch semantic hallucinations before tool execution.
@@ -63,12 +63,12 @@ In this review, I am adopting the persona of a pragmatic, deeply experienced Pri
 > "We can't hardcode model capabilities into the Rust compiler, new models come out every week."
 
 **Attacker:**
-> "You don't hardcode it. But your `openclaw-os` contract must specify that if an agent returns a perfectly structured but *semantically empty* payload (e.g., all strings are `""`), the OS must treat it as a `SchemaDegradation` error, not a success."
+> "You don't hardcode it. But your `claw-os` contract must specify that if an agent returns a perfectly structured but *semantically empty* payload (e.g., all strings are `""`), the OS must treat it as a `SchemaDegradation` error, not a success."
 
 **Verdict: ATTACKER WINS.**
-*Requirement:* We must mutate `openclaw-os.md` to include a `SchemaDegradation` detection algorithm running alongside the TypeBox Bouncer to catch and retry "lazy model" outputs.
+*Requirement:* We must mutate `claw-os.md` to include a `SchemaDegradation` detection algorithm running alongside the TypeBox Bouncer to catch and retry "lazy model" outputs.
 
 ---
 
 ## Next Actions
-Both the grammar and the OpenClaw OS specifications must be urgently updated to patch these three massive physical limitations of AI models.
+Both the grammar and the Claw OS specifications must be urgently updated to patch these three massive physical limitations of AI models.

@@ -1,6 +1,6 @@
 # Phase 8 GAN Audit: Checkpointing, Resumption, and State Mutations
 
-In this GAN (Generative Adversarial Network) Audit, **The Breaker** (Systems/Security Architect) challenges **The Maker** (Lead Execution Engineer) regarding the structural guarantees of the Claw Gateway's Event Sourcing and Checkpoint OS (`specs/07-OpenClaw-OS.md`).
+In this GAN (Generative Adversarial Network) Audit, **The Breaker** (Systems/Security Architect) challenges **The Maker** (Lead Execution Engineer) regarding the structural guarantees of the Claw Gateway's Event Sourcing and Checkpoint OS (`specs/07-Claw-OS.md`).
 
 ---
 
@@ -31,7 +31,7 @@ In this GAN (Generative Adversarial Network) Audit, **The Breaker** (Systems/Sec
 
 **Resolution (MAKER YIELDS - GATEWAY UPGRADE):**
 *Implementation Fix:* We strictly enforce **AST Hashing Checkpointing**. 
-1. `session_id` records in the database MUST include the `OPENCLAW_AST_HASH` they were created under.
+1. `session_id` records in the database MUST include the `CLAW_AST_HASH` they were created under.
 2. The Gateway can only resume a checkpoint if the runtime `AST_HASH` perfectly matches the checkpoint's hash. 
 3. *Downstream Impact:* To prevent blocking, `claw-gateway` must support "Drain Mode"—running both the old AST and the new AST side-by-side in memory, routing resumed sessions to their original AST definitions until they naturally complete, while new sessions hit the latest deployment.
 
@@ -63,7 +63,7 @@ In this GAN (Generative Adversarial Network) Audit, **The Breaker** (Systems/Sec
 > "The compiler specs mention retry limits, but the Gateway spec currently lacks a circuit breaker definition for hard schema degradations."
 
 **Resolution (MAKER YIELDS - FINANCIAL SECURITY GUARDRAIL):**
-*Implementation Fix:* Update `specs/07-OpenClaw-OS.md` to define a hard-coded, non-configurable **Circuit Breaker**:
+*Implementation Fix:* Update `specs/07-Claw-OS.md` to define a hard-coded, non-configurable **Circuit Breaker**:
 - Max continuous LLM schema degradation retries = 3. 
 - After 3 consecutive TypeBox unparseable failures on a single node execution attempt, the node fatally faults the workflow. The Gateway will not allow infinite LLM spinning under any circumstance.
 - A `claw.json` property `max_cost_per_session` will be tracked by standardizing token estimation before firing the requests.

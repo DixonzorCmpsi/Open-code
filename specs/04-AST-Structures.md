@@ -1,4 +1,4 @@
-# OpenClaw DSL: Rust AST Specifications
+# Claw DSL: Rust AST Specifications
 
 This document defines exactly how the `03-Grammar.md` parsing rules are lowered into heavily-typed Rust data structures (the Abstract Syntax Tree) by the `clawc` compiler.
 
@@ -182,7 +182,7 @@ pub enum Statement {
     TryCatch {
         try_body: Block,
         catch_name: String,
-        catch_type: DataType,  // Required — OpenClaw has no untyped bindings
+        catch_type: DataType,  // Required — Claw has no untyped bindings
         catch_body: Block,
         span: Span,
     },

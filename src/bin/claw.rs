@@ -9,7 +9,7 @@ use std::time::Duration;
 use clap::{Parser, Subcommand, ValueEnum};
 use clawc::ast::{Document, TestDecl};
 use clawc::codegen;
-use clawc::config::{BuildLanguage, OpenClawConfig};
+use clawc::config::{BuildLanguage, ClawConfig};
 use clawc::errors::CompilerError;
 use clawc::{parser, semantic};
 use notify::{recommended_watcher, Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -88,7 +88,7 @@ struct GatewayCommand {
 }
 
 #[derive(Debug, Error)]
-enum OpenClawCliError {
+enum ClawCliError {
     #[error("{rendered}")]
     Compiler {
         error: CompilerError,
@@ -107,9 +107,9 @@ fn main() {
     }
 }
 
-fn exit_code_for_error(error: &OpenClawCliError) -> i32 {
+fn exit_code_for_error(error: &ClawCliError) -> i32 {
     match error {
-        OpenClawCliError::Compiler { error, .. } => match error {
+        ClawCliError::Compiler { error, .. } => match error {
             CompilerError::ParseError { .. } => 1,
             CompilerError::Io { .. } => 4,
             CompilerError::UndefinedTool { .. }
@@ -127,12 +127,12 @@ fn exit_code_for_error(error: &OpenClawCliError) -> i32 {
             | CompilerError::BamlSignatureConflict { .. }
             | CompilerError::CircularAgentExtends { .. } => 2,
         },
-        OpenClawCliError::Codegen(_) => 3,
-        OpenClawCliError::Message(_) => 1,
+        ClawCliError::Codegen(_) => 3,
+        ClawCliError::Message(_) => 1,
     }
 }
 
-fn run(cli: Cli) -> Result<(), OpenClawCliError> {
+fn run(cli: Cli) -> Result<(), ClawCliError> {
     match cli.command {
         Commands::Init(args) => run_init(args),
         Commands::Build(args) => run_build_command(args),
@@ -141,7 +141,7 @@ fn run(cli: Cli) -> Result<(), OpenClawCliError> {
     }
 }
 
-fn run_init(args: InitArgs) -> Result<(), OpenClawCliError> {
+fn run_init(args: InitArgs) -> Result<(), ClawCliError> {
     // ── Step 1: Node.js version check ──────────────────────────────────
     ensure_node_version()?;
 
@@ -155,7 +155,7 @@ fn run_init(args: InitArgs) -> Result<(), OpenClawCliError> {
             PathBuf::from("src/pipeline.claw")
         };
 
-        let config = OpenClawConfig::template(default_source);
+        let config = ClawConfig::template(default_source);
         config.write_pretty(&args.path).map_err(|error| {
             let rendered = error.to_string();
             compiler_error(error, rendered)
@@ -173,7 +173,7 @@ fn run_init(args: InitArgs) -> Result<(), OpenClawCliError> {
     ensure_state_dir()?;
 
     // ── Step 6: Initial build ──────────────────────────────────────────
-    let config = OpenClawConfig::load(&args.path).map_err(|error| {
+    let config = ClawConfig::load(&args.path).map_err(|error| {
         let rendered = error.to_string();
         compiler_error(error, rendered)
     })?;
@@ -195,7 +195,7 @@ fn run_init(args: InitArgs) -> Result<(), OpenClawCliError> {
     Ok(())
 }
 
-fn run_dev(args: DevArgs) -> Result<(), OpenClawCliError> {
+fn run_dev(args: DevArgs) -> Result<(), ClawCliError> {
     // Auto-bootstrap: config, node, npm deps, state dir
     if !args.config.exists() {
         println!("[dev] no {} found — running init first", args.config.display());
@@ -207,7 +207,7 @@ fn run_dev(args: DevArgs) -> Result<(), OpenClawCliError> {
         ensure_bootstrapped()?;
     }
 
-    let config = OpenClawConfig::load(&args.config)
+    let config = ClawConfig::load(&args.config)
         .map_err(|error| {
             let rendered = error.to_string();
             compiler_error(error, rendered)
@@ -232,7 +232,7 @@ fn run_dev(args: DevArgs) -> Result<(), OpenClawCliError> {
     let mut watcher = recommended_watcher(move |result| {
         let _ = sender.send(result);
     })
-    .map_err(|error| OpenClawCliError::Message(format!("failed to start file watcher: {error}")))?;
+    .map_err(|error| ClawCliError::Message(format!("failed to start file watcher: {error}")))?;
 
     let mut watched_source = request.source.clone();
     watch_path(&mut watcher, &watched_source)?;
@@ -249,7 +249,7 @@ fn run_dev(args: DevArgs) -> Result<(), OpenClawCliError> {
     ctrlc::set_handler(move || {
         let _ = shutdown_tx.send(());
     })
-    .map_err(|error| OpenClawCliError::Message(format!("failed to set ctrl+c handler: {error}")))?;
+    .map_err(|error| ClawCliError::Message(format!("failed to set ctrl+c handler: {error}")))?;
 
     loop {
         if shutdown_rx.try_recv().is_ok() {
@@ -262,7 +262,7 @@ fn run_dev(args: DevArgs) -> Result<(), OpenClawCliError> {
             Ok(Ok(_event)) => {
                 let _ = drain_watch_burst(&receiver);
                 let fresh_config = if args.config.exists() {
-                    Some(OpenClawConfig::load(&args.config).map_err(|error| {
+                    Some(ClawConfig::load(&args.config).map_err(|error| {
                         let rendered = error.to_string();
                         compiler_error(error, rendered)
                     })?)
@@ -285,7 +285,7 @@ fn run_dev(args: DevArgs) -> Result<(), OpenClawCliError> {
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => {
                 let _ = shutdown_gateway(&config, args.port, &mut gateway_child);
-                return Err(OpenClawCliError::Message(
+                return Err(ClawCliError::Message(
                     "watch channel closed unexpectedly".to_owned(),
                 ));
             }
@@ -295,9 +295,9 @@ fn run_dev(args: DevArgs) -> Result<(), OpenClawCliError> {
 
 fn start_gateway(
     port: u16,
-    config: &OpenClawConfig,
+    config: &ClawConfig,
     config_path: &Path,
-) -> Result<Child, OpenClawCliError> {
+) -> Result<Child, ClawCliError> {
     let gateway = resolve_gateway_command(config_path, config)?;
     let mut command = Command::new(&gateway.program);
     command.args(&gateway.args);
@@ -313,7 +313,7 @@ fn start_gateway(
     }
 
     command.spawn().map_err(|error| {
-        OpenClawCliError::Message(format!(
+        ClawCliError::Message(format!(
             "failed to start gateway via {}: {error}",
             gateway.program.display()
         ))
@@ -322,8 +322,8 @@ fn start_gateway(
 
 fn resolve_gateway_command(
     config_path: &Path,
-    config: &OpenClawConfig,
-) -> Result<GatewayCommand, OpenClawCliError> {
+    config: &ClawConfig,
+) -> Result<GatewayCommand, ClawCliError> {
     let project_root = resolve_project_root(config_path)?;
 
     if let Some(executable) = &config.gateway.executable {
@@ -367,19 +367,19 @@ fn resolve_gateway_command(
         });
     }
 
-    Err(OpenClawCliError::Message(
+    Err(ClawCliError::Message(
         "Gateway binary not found. Set 'gateway.executable' in claw.json, or ensure openclaw-gateway is in this workspace."
             .to_owned(),
     ))
 }
 
-fn resolve_project_root(config_path: &Path) -> Result<PathBuf, OpenClawCliError> {
+fn resolve_project_root(config_path: &Path) -> Result<PathBuf, ClawCliError> {
     let absolute_config = if config_path.is_absolute() {
         config_path.to_path_buf()
     } else {
         std::env::current_dir()
             .map_err(|error| {
-                OpenClawCliError::Message(format!(
+                ClawCliError::Message(format!(
                     "failed to resolve current directory: {error}"
                 ))
             })?
@@ -427,14 +427,14 @@ fn find_command_in_path(command_name: &str) -> Option<PathBuf> {
 }
 
 fn shutdown_gateway(
-    config: &OpenClawConfig,
+    config: &ClawConfig,
     port: u16,
     child: &mut Child,
-) -> Result<(), OpenClawCliError> {
+) -> Result<(), ClawCliError> {
     if child
         .try_wait()
         .map_err(|error| {
-            OpenClawCliError::Message(format!("failed to inspect gateway process: {error}"))
+            ClawCliError::Message(format!("failed to inspect gateway process: {error}"))
         })?
         .is_some()
     {
@@ -451,7 +451,7 @@ fn shutdown_gateway(
     child
         .kill()
         .map_err(|error| {
-            OpenClawCliError::Message(format!("failed to terminate gateway process: {error}"))
+            ClawCliError::Message(format!("failed to terminate gateway process: {error}"))
         })?;
     let _ = child.wait();
     Ok(())
@@ -460,25 +460,25 @@ fn shutdown_gateway(
 fn request_gateway_shutdown(
     port: u16,
     api_key: Option<&str>,
-) -> Result<(), OpenClawCliError> {
+) -> Result<(), ClawCliError> {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(1))
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to connect to gateway shutdown endpoint: {error}"
             ))
         })?;
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to set gateway shutdown read timeout: {error}"
             ))
         })?;
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to set gateway shutdown write timeout: {error}"
             ))
         })?;
@@ -487,7 +487,7 @@ fn request_gateway_shutdown(
     stream
         .write_all(request.as_bytes())
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to send gateway shutdown request: {error}"
             ))
         })?;
@@ -496,7 +496,7 @@ fn request_gateway_shutdown(
     stream
         .read_to_string(&mut response)
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to read gateway shutdown response: {error}"
             ))
         })?;
@@ -509,7 +509,7 @@ fn request_gateway_shutdown(
         return Ok(());
     }
 
-    Err(OpenClawCliError::Message(format!(
+    Err(ClawCliError::Message(format!(
         "gateway shutdown endpoint returned an unexpected response: {}",
         response.lines().next().unwrap_or("<empty>")
     )))
@@ -526,13 +526,13 @@ fn build_shutdown_request(port: u16, api_key: Option<&str>) -> String {
     request
 }
 
-fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> Result<bool, OpenClawCliError> {
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> Result<bool, ClawCliError> {
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if child
             .try_wait()
             .map_err(|error| {
-                OpenClawCliError::Message(format!(
+                ClawCliError::Message(format!(
                     "failed while waiting for gateway process: {error}"
                 ))
             })?
@@ -551,7 +551,7 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> Result<bool, Ope
 
 fn drain_watch_burst(
     receiver: &mpsc::Receiver<Result<Event, notify::Error>>,
-) -> Result<(), OpenClawCliError> {
+) -> Result<(), ClawCliError> {
     let deadline = std::time::Instant::now() + Duration::from_millis(100);
     loop {
         let now = std::time::Instant::now();
@@ -562,7 +562,7 @@ fn drain_watch_burst(
         match receiver.recv_timeout(deadline - now) {
             Ok(Ok(_)) => continue,
             Ok(Err(error)) => {
-                return Err(OpenClawCliError::Message(format!("watch error: {error}")));
+                return Err(ClawCliError::Message(format!("watch error: {error}")));
             }
             Err(RecvTimeoutError::Timeout) => return Ok(()),
             Err(RecvTimeoutError::Disconnected) => return Ok(()),
@@ -570,12 +570,12 @@ fn drain_watch_burst(
     }
 }
 
-fn run_build_command(args: BuildArgs) -> Result<(), OpenClawCliError> {
+fn run_build_command(args: BuildArgs) -> Result<(), ClawCliError> {
     ensure_bootstrapped()?;
 
     let config = if args.source.is_none() {
         Some(
-            OpenClawConfig::load(&args.config)
+            ClawConfig::load(&args.config)
                 .map_err(|error| {
                     let rendered = error.to_string();
                     compiler_error(error, rendered)
@@ -593,12 +593,12 @@ fn run_build_command(args: BuildArgs) -> Result<(), OpenClawCliError> {
     run_build_once(&request).map(|_| ())
 }
 
-fn run_test(args: TestArgs) -> Result<(), OpenClawCliError> {
+fn run_test(args: TestArgs) -> Result<(), ClawCliError> {
     ensure_bootstrapped()?;
 
     let config = if args.source.is_none() {
         Some(
-            OpenClawConfig::load(&args.config)
+            ClawConfig::load(&args.config)
                 .map_err(|error| {
                     let rendered = error.to_string();
                     compiler_error(error, rendered)
@@ -641,7 +641,7 @@ fn run_test(args: TestArgs) -> Result<(), OpenClawCliError> {
         tests: selected_tests,
     };
     let manifest_json = serde_json::to_vec(&manifest).map_err(|error| {
-        OpenClawCliError::Message(format!("failed to serialize test manifest: {error}"))
+        ClawCliError::Message(format!("failed to serialize test manifest: {error}"))
     })?;
 
     let mut child = Command::new(&runner.program)
@@ -653,7 +653,7 @@ fn run_test(args: TestArgs) -> Result<(), OpenClawCliError> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to start test runner via {}: {error}",
                 runner.program.display()
             ))
@@ -661,34 +661,34 @@ fn run_test(args: TestArgs) -> Result<(), OpenClawCliError> {
 
     {
         let Some(stdin) = child.stdin.as_mut() else {
-            return Err(OpenClawCliError::Message(
+            return Err(ClawCliError::Message(
                 "failed to open test runner stdin".to_owned(),
             ));
         };
         stdin
             .write_all(&manifest_json)
-            .map_err(|error| OpenClawCliError::Message(format!("failed to write test manifest: {error}")))?;
+            .map_err(|error| ClawCliError::Message(format!("failed to write test manifest: {error}")))?;
     }
     child.stdin.take();
 
     let stdout = child.stdout.take().ok_or_else(|| {
-        OpenClawCliError::Message("failed to open test runner stdout".to_owned())
+        ClawCliError::Message("failed to open test runner stdout".to_owned())
     })?;
     let stderr = child.stderr.take().ok_or_else(|| {
-        OpenClawCliError::Message("failed to open test runner stderr".to_owned())
+        ClawCliError::Message("failed to open test runner stderr".to_owned())
     })?;
 
     let mut summary: Option<TestSummaryLine> = None;
     for line in BufReader::new(stdout).lines() {
         let line = line.map_err(|error| {
-            OpenClawCliError::Message(format!("failed to read test runner output: {error}"))
+            ClawCliError::Message(format!("failed to read test runner output: {error}"))
         })?;
         if line.trim().is_empty() {
             continue;
         }
 
         let parsed: TestRunnerLine = serde_json::from_str(&line).map_err(|error| {
-            OpenClawCliError::Message(format!("failed to parse test runner output: {error}"))
+            ClawCliError::Message(format!("failed to parse test runner output: {error}"))
         })?;
 
         if parsed.summary.unwrap_or(false) {
@@ -725,13 +725,13 @@ fn run_test(args: TestArgs) -> Result<(), OpenClawCliError> {
         BufReader::new(stderr)
             .read_to_string(&mut buffer)
             .map_err(|error| {
-                OpenClawCliError::Message(format!("failed to read test runner stderr: {error}"))
+                ClawCliError::Message(format!("failed to read test runner stderr: {error}"))
             })?;
         buffer
     };
 
     let status = child.wait().map_err(|error| {
-        OpenClawCliError::Message(format!("failed to wait for test runner: {error}"))
+        ClawCliError::Message(format!("failed to wait for test runner: {error}"))
     })?;
 
     let summary = summary.unwrap_or_else(|| TestSummaryLine {
@@ -752,7 +752,7 @@ fn run_test(args: TestArgs) -> Result<(), OpenClawCliError> {
         } else {
             format!("{} tests failed", summary.failed.max(1))
         };
-        return Err(OpenClawCliError::Message(message));
+        return Err(ClawCliError::Message(message));
     }
 
     Ok(())
@@ -760,14 +760,14 @@ fn run_test(args: TestArgs) -> Result<(), OpenClawCliError> {
 
 fn resolve_build_request(
     args: &BuildArgs,
-    config: Option<&OpenClawConfig>,
-) -> Result<BuildRequest, OpenClawCliError> {
+    config: Option<&ClawConfig>,
+) -> Result<BuildRequest, ClawCliError> {
     let source = args
         .source
         .clone()
         .or_else(|| config.map(|config| config.build.source.clone()))
         .ok_or_else(|| {
-            OpenClawCliError::Message(
+            ClawCliError::Message(
                 "no .claw source provided and claw.json was not loaded".to_owned(),
             )
         })?;
@@ -791,24 +791,24 @@ fn resolve_build_request(
 
 fn resolve_test_source(
     args: &TestArgs,
-    config: Option<&OpenClawConfig>,
-) -> Result<PathBuf, OpenClawCliError> {
+    config: Option<&ClawConfig>,
+) -> Result<PathBuf, ClawCliError> {
     args.source
         .clone()
         .or_else(|| config.map(|config| config.build.source.clone()))
         .ok_or_else(|| {
-            OpenClawCliError::Message(
+            ClawCliError::Message(
                 "no .claw source provided and claw.json was not loaded".to_owned(),
             )
         })
 }
 
-fn run_watch_mode(args: BuildArgs, initial_request: BuildRequest) -> Result<(), OpenClawCliError> {
+fn run_watch_mode(args: BuildArgs, initial_request: BuildRequest) -> Result<(), ClawCliError> {
     let (sender, receiver) = mpsc::channel();
     let mut watcher = recommended_watcher(move |result| {
         let _ = sender.send(result);
     })
-    .map_err(|error| OpenClawCliError::Message(format!("failed to start file watcher: {error}")))?;
+    .map_err(|error| ClawCliError::Message(format!("failed to start file watcher: {error}")))?;
 
     let mut watched_source = initial_request.source.clone();
     watch_path(&mut watcher, &watched_source)?;
@@ -827,7 +827,7 @@ fn run_watch_mode(args: BuildArgs, initial_request: BuildRequest) -> Result<(), 
                 let _ = drain_watch_burst(&receiver);
                 let config = if args.source.is_none() && args.config.exists() {
                     Some(
-                        OpenClawConfig::load(&args.config)
+                        ClawConfig::load(&args.config)
                             .map_err(|error| {
                                 let rendered = error.to_string();
                                 compiler_error(error, rendered)
@@ -850,7 +850,7 @@ fn run_watch_mode(args: BuildArgs, initial_request: BuildRequest) -> Result<(), 
             }
             Ok(Err(error)) => eprintln!("watch error: {error}"),
             Err(error) => {
-                return Err(OpenClawCliError::Message(format!(
+                return Err(ClawCliError::Message(format!(
                     "watch channel closed: {error}"
                 )));
             }
@@ -861,18 +861,18 @@ fn run_watch_mode(args: BuildArgs, initial_request: BuildRequest) -> Result<(), 
 fn watch_path(
     watcher: &mut RecommendedWatcher,
     path: &Path,
-) -> Result<(), OpenClawCliError> {
+) -> Result<(), ClawCliError> {
     watcher
         .watch(path, RecursiveMode::NonRecursive)
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to watch {}: {error}",
                 path.display()
             ))
         })
 }
 
-fn resolve_test_runner_command(config_path: &Path) -> Result<GatewayCommand, OpenClawCliError> {
+fn resolve_test_runner_command(config_path: &Path) -> Result<GatewayCommand, ClawCliError> {
     let project_root = resolve_project_root(config_path)?;
     let test_runner = project_root
         .join("claw-gateway")
@@ -881,7 +881,7 @@ fn resolve_test_runner_command(config_path: &Path) -> Result<GatewayCommand, Ope
         .join("test-runner.ts");
 
     if !test_runner.exists() {
-        return Err(OpenClawCliError::Message(format!(
+        return Err(ClawCliError::Message(format!(
             "Gateway test runner not found at {}",
             test_runner.display()
         )));
@@ -909,7 +909,7 @@ fn select_tests<'a>(document: &'a Document, filter: Option<&str>) -> Vec<&'a Tes
         .collect()
 }
 
-fn run_build_once(request: &BuildRequest) -> Result<PathBuf, OpenClawCliError> {
+fn run_build_once(request: &BuildRequest) -> Result<PathBuf, ClawCliError> {
     let source = read_source_file(&request.source).map_err(|error| {
         let rendered = error.to_string();
         compiler_error(error, rendered)
@@ -947,7 +947,7 @@ fn compile_document(source: &str) -> Result<Document, CompilerError> {
     Ok(document)
 }
 
-fn generate_sdk(document: &Document, language: BuildLanguage) -> Result<String, OpenClawCliError> {
+fn generate_sdk(document: &Document, language: BuildLanguage) -> Result<String, ClawCliError> {
     match language {
         BuildLanguage::Ts => codegen::generate_ts(document),
         BuildLanguage::Python => codegen::generate_python(document),
@@ -958,8 +958,8 @@ fn generate_sdk(document: &Document, language: BuildLanguage) -> Result<String, 
     })
 }
 
-fn compiler_error(error: CompilerError, rendered: String) -> OpenClawCliError {
-    OpenClawCliError::Compiler { error, rendered }
+fn compiler_error(error: CompilerError, rendered: String) -> ClawCliError {
+    ClawCliError::Compiler { error, rendered }
 }
 
 fn read_source_file(source_path: &Path) -> Result<String, CompilerError> {
@@ -1122,7 +1122,7 @@ struct TestSummaryLine {
 /// Verify that Node.js >= 22.6 is available. The gateway requires native TS
 /// execution via --experimental-strip-types and node:sqlite, both of which
 /// shipped in Node 22.6.0.
-fn ensure_node_version() -> Result<(), OpenClawCliError> {
+fn ensure_node_version() -> Result<(), ClawCliError> {
     let output = Command::new("node")
         .arg("--version")
         .stdout(Stdio::piped())
@@ -1141,20 +1141,20 @@ fn ensure_node_version() -> Result<(), OpenClawCliError> {
                 println!("[init] node v{} ✓", version);
                 Ok(())
             } else {
-                Err(OpenClawCliError::Message(format!(
+                Err(ClawCliError::Message(format!(
                     "Node.js >= 22.6.0 required (found v{version}). \
                      The gateway uses --experimental-strip-types and node:sqlite."
                 )))
             }
         }
-        _ => Err(OpenClawCliError::Message(
+        _ => Err(ClawCliError::Message(
             "Node.js is not installed. Install Node.js >= 22.6.0 from https://nodejs.org".to_owned(),
         )),
     }
 }
 
 /// Run `npm install` if `node_modules/` does not exist or is missing key deps.
-fn ensure_npm_installed() -> Result<(), OpenClawCliError> {
+fn ensure_npm_installed() -> Result<(), ClawCliError> {
     if Path::new("node_modules").exists() && Path::new("node_modules/.package-lock.json").exists() {
         println!("[init] npm dependencies ✓");
         return Ok(());
@@ -1165,13 +1165,13 @@ fn ensure_npm_installed() -> Result<(), OpenClawCliError> {
         .args(["install", "--no-audit", "--no-fund"])
         .status()
         .map_err(|error| {
-            OpenClawCliError::Message(format!(
+            ClawCliError::Message(format!(
                 "failed to run npm install: {error}. Is npm installed?"
             ))
         })?;
 
     if !status.success() {
-        return Err(OpenClawCliError::Message(
+        return Err(ClawCliError::Message(
             "npm install failed. Check npm output above for details.".to_owned(),
         ));
     }
@@ -1181,7 +1181,7 @@ fn ensure_npm_installed() -> Result<(), OpenClawCliError> {
 }
 
 /// Copy `.env.example` → `.env` if `.env` does not exist yet.
-fn ensure_env_file() -> Result<(), OpenClawCliError> {
+fn ensure_env_file() -> Result<(), ClawCliError> {
     let env_path = Path::new(".env");
     if env_path.exists() {
         println!("[init] .env ✓");
@@ -1191,7 +1191,7 @@ fn ensure_env_file() -> Result<(), OpenClawCliError> {
     let example = Path::new(".env.example");
     if example.exists() {
         fs::copy(example, env_path).map_err(|error| {
-            OpenClawCliError::Message(format!("failed to copy .env.example → .env: {error}"))
+            ClawCliError::Message(format!("failed to copy .env.example → .env: {error}"))
         })?;
         println!("[init] created .env from .env.example (edit API keys before running)");
     } else {
@@ -1201,14 +1201,14 @@ fn ensure_env_file() -> Result<(), OpenClawCliError> {
 }
 
 /// Create the `.claw/` state directory for SQLite, screenshots, and logs.
-fn ensure_state_dir() -> Result<(), OpenClawCliError> {
+fn ensure_state_dir() -> Result<(), ClawCliError> {
     let state_dir = Path::new(".claw");
     if state_dir.exists() {
         return Ok(());
     }
 
     fs::create_dir_all(state_dir).map_err(|error| {
-        OpenClawCliError::Message(format!("failed to create .claw/: {error}"))
+        ClawCliError::Message(format!("failed to create .claw/: {error}"))
     })?;
 
     // On Windows, mark the state directory as hidden (best-effort)
@@ -1226,7 +1226,7 @@ fn ensure_state_dir() -> Result<(), OpenClawCliError> {
 /// Run the full bootstrap sequence that `claw init` performs, but silently
 /// skip steps that are already satisfied. Called by `claw dev` and
 /// `claw build` so the user never has to run init manually.
-fn ensure_bootstrapped() -> Result<(), OpenClawCliError> {
+fn ensure_bootstrapped() -> Result<(), ClawCliError> {
     ensure_node_version()?;
     ensure_npm_installed()?;
     ensure_state_dir()?;
@@ -1325,11 +1325,11 @@ mod tests {
     use super::{
         build_shutdown_request, exit_code_for_error, resolve_build_request,
         resolve_gateway_command, BuildArgs, Cli, Commands, DevArgs, InitArgs, Language, TestArgs,
-        OpenClawCliError, select_tests,
+        ClawCliError, select_tests,
     };
     use clap::Parser;
     use clawc::ast::{Block, Document, Span, TestDecl};
-    use clawc::config::{BuildLanguage, OpenClawConfig};
+    use clawc::config::{BuildLanguage, ClawConfig};
     use clawc::errors::CompilerError;
     use std::fs;
     use std::io;
@@ -1348,7 +1348,7 @@ mod tests {
 
     #[test]
     fn resolves_build_request_from_config_when_source_is_omitted() {
-        let config = OpenClawConfig::template("example.claw");
+        let config = ClawConfig::template("example.claw");
         let request = resolve_build_request(
             &BuildArgs {
                 source: None,
@@ -1386,7 +1386,7 @@ mod tests {
 
     #[test]
     fn cli_language_overrides_config_language() {
-        let mut config = OpenClawConfig::template("example.claw");
+        let mut config = ClawConfig::template("example.claw");
         config.build.language = BuildLanguage::Ts;
 
         let request = resolve_build_request(
@@ -1423,7 +1423,7 @@ mod tests {
         fs::create_dir_all(executable.parent().unwrap()).unwrap();
         fs::write(&executable, "echo gateway\n").unwrap();
 
-        let mut config = OpenClawConfig::template("example.claw");
+        let mut config = ClawConfig::template("example.claw");
         config.gateway.executable = Some(PathBuf::from("tools").join(executable.file_name().unwrap()));
 
         let command = resolve_gateway_command(&root.join("claw.json"), &config).unwrap();
@@ -1450,7 +1450,7 @@ mod tests {
         fs::create_dir_all(gateway.parent().unwrap()).unwrap();
         fs::write(&gateway, "echo gateway\n").unwrap();
 
-        let config = OpenClawConfig::template("example.claw");
+        let config = ClawConfig::template("example.claw");
         let command = resolve_gateway_command(&root.join("claw.json"), &config).unwrap();
 
         assert_eq!(
@@ -1463,7 +1463,7 @@ mod tests {
 
     #[test]
     fn maps_parse_errors_to_exit_code_one() {
-        let error = OpenClawCliError::Compiler {
+        let error = ClawCliError::Compiler {
             error: CompilerError::ParseError {
                 message: "expected identifier".to_owned(),
                 span: Span::default(),
@@ -1522,7 +1522,7 @@ mod tests {
         ];
 
         for compiler_error in semantic_errors {
-            let error = OpenClawCliError::Compiler {
+            let error = ClawCliError::Compiler {
                 error: compiler_error,
                 rendered: "semantic failure".to_owned(),
             };
@@ -1532,14 +1532,14 @@ mod tests {
 
     #[test]
     fn maps_codegen_errors_to_exit_code_three() {
-        let error = OpenClawCliError::Codegen("template render failed".to_owned());
+        let error = ClawCliError::Codegen("template render failed".to_owned());
 
         assert_eq!(exit_code_for_error(&error), 3);
     }
 
     #[test]
     fn maps_io_errors_to_exit_code_four() {
-        let error = OpenClawCliError::Compiler {
+        let error = ClawCliError::Compiler {
             error: CompilerError::Io {
                 path: PathBuf::from("missing.claw"),
                 source: io::Error::from(io::ErrorKind::NotFound),

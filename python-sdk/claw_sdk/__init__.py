@@ -11,7 +11,7 @@ import uuid
 from typing import AsyncIterator
 
 
-class OpenClawExecutionError(RuntimeError):
+class ClawExecutionError(RuntimeError):
     def __init__(
         self,
         message: str,
@@ -25,11 +25,13 @@ class OpenClawExecutionError(RuntimeError):
         self.payload = payload or {}
 
 
-AgentExecutionError = OpenClawExecutionError
+AgentExecutionError = ClawExecutionError
 
 
-class OpenClawClient:
-    def __init__(self, endpoint: str = "http://127.0.0.1:8080", api_key: str | None = None) -> None:
+class ClawClient:
+    def __init__(
+        self, endpoint: str = "http://127.0.0.1:8080", api_key: str | None = None
+    ) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.api_key = api_key
 
@@ -51,7 +53,7 @@ class OpenClawClient:
 
         response_payload = await asyncio.to_thread(self._post_json, payload)
         if response_payload.get("status") != "success":
-            raise OpenClawExecutionError(
+            raise ClawExecutionError(
                 response_payload.get("message", "Workflow execution failed"),
                 session_id=response_payload.get("session_id", session_id),
                 status=response_payload.get("status"),
@@ -63,7 +65,7 @@ class OpenClawClient:
     def _post_json(self, payload: dict) -> dict:
         headers = {"content-type": "application/json"}
         if self.api_key:
-            headers["x-openclaw-key"] = self.api_key
+            headers["x-claw-key"] = self.api_key
 
         request = urllib.request.Request(
             f"{self.endpoint}/workflows/execute",
@@ -100,16 +102,16 @@ class OpenClawClient:
         session_id = resume_session_id or f"req_{uuid.uuid4()}"
         ws_endpoint = self.endpoint.replace("http", "ws", 1) + "/workflows/stream"
 
-        reader, writer = await asyncio.to_thread(
-            self._ws_connect, ws_endpoint
-        )
+        reader, writer = await asyncio.to_thread(self._ws_connect, ws_endpoint)
 
-        payload = json.dumps({
-            "workflow": workflow_name,
-            "arguments": arguments,
-            "ast_hash": ast_hash,
-            "session_id": session_id,
-        })
+        payload = json.dumps(
+            {
+                "workflow": workflow_name,
+                "arguments": arguments,
+                "ast_hash": ast_hash,
+                "session_id": session_id,
+            }
+        )
         await asyncio.to_thread(self._ws_send_text, writer, payload)
 
         while True:
@@ -122,7 +124,7 @@ class OpenClawClient:
 
             if event.get("type") in ("result", "error"):
                 if event["type"] == "error":
-                    raise OpenClawExecutionError(
+                    raise ClawExecutionError(
                         event.get("message", "Execution failed"),
                         session_id=event.get("session_id", session_id),
                         status="error",
@@ -150,6 +152,7 @@ class OpenClawClient:
 
         key = os.urandom(16)
         import base64
+
         ws_key = base64.b64encode(key).decode()
 
         path = parsed.path or "/"
@@ -162,7 +165,7 @@ class OpenClawClient:
             "Sec-WebSocket-Version: 13",
         ]
         if self.api_key:
-            headers.append(f"x-openclaw-key: {self.api_key}")
+            headers.append(f"x-claw-key: {self.api_key}")
         headers.append("")
         headers.append("")
 
@@ -177,7 +180,8 @@ class OpenClawClient:
             response += chunk
 
         if b"101" not in response.split(b"\r\n")[0]:
-            raise ConnectionError(f"WebSocket handshake failed: {response.split(b'\\r\\n')[0]}")
+            first_line = response.split(b"\r\n")[0]
+            raise ConnectionError(f"WebSocket handshake failed: {first_line!r}")
 
         return (raw, raw)
 

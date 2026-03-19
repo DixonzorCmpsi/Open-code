@@ -1,4 +1,4 @@
-# OpenClaw DSL: SDK Generation
+# Claw DSL: SDK Generation
 
 Once the `.claw` code is parsed into an AST and validated by the Semantic Analyzer, the `clawc` compiler moves to Phase 3: Code Generation. This phase outputs the `.claw` workflows into standard, strictly-typed SDK files for use in the developer's application.
 
@@ -30,7 +30,7 @@ workflow AnalyzeCompetitors(company: string) -> SearchResult { ... }
 
 **Generated `claw/index.ts`:**
 ```typescript
-import { OpenClawClient, AgentExecutionError } from "@openclaw/sdk";
+import { ClawClient, AgentExecutionError } from "@claw/sdk";
 
 // 1. The emitted Zod schemas (runtime validation at the SDK boundary)
 import { z } from "zod";
@@ -46,7 +46,7 @@ export type SearchResult = z.infer<typeof SearchResultSchema>;
 // 2. The emitted Workflow Function
 export const AnalyzeCompetitors = async (
     company: string,
-    options: { client: OpenClawClient, resumeSessionId?: string }
+    options: { client: ClawClient, resumeSessionId?: string }
 ): Promise<SearchResult> => {
 
     // The emitted function communicates with the Heavy Backend Gateway
@@ -75,7 +75,7 @@ workflow AnalyzeCompetitors(company: string) -> SearchResult { ... }
 **Generated `claw/__init__.py`:**
 ```python
 from pydantic import BaseModel
-from openclaw_sdk import OpenClawClient
+from claw_sdk import ClawClient
 from typing import List
 
 # 1. The emitted Pydantic Models
@@ -86,7 +86,7 @@ class SearchResult(BaseModel):
     tags: List[str]
 
 # 2. The emitted Workflow Function
-async def analyze_competitors(company: str, client: OpenClawClient) -> SearchResult:
+async def analyze_competitors(company: str, client: ClawClient) -> SearchResult:
     # 3. Call the heavy Gateway for execution
     result_dict = await client.execute_workflow(
         workflow_name="AnalyzeCompetitors", 
@@ -101,4 +101,4 @@ async def analyze_competitors(company: str, client: OpenClawClient) -> SearchRes
 
 When the generated SDK executes, it serializes the workflow request into standard JSON and sends it over WebSockets to the `openclaw-gateway` (which acts as the operating system for agent execution).
 
-The SDK is purely a lightweight router; the complex task of spinning up Playwright browsers, managing Docker-based Python scripts, and enforcing TypeBox constrained decoding via OpenAI is handled by the OpenClaw Gateway.
+The SDK is purely a lightweight router; the complex task of spinning up Playwright browsers, managing Docker-based Python scripts, and enforcing TypeBox constrained decoding via OpenAI is handled by the Claw Gateway.

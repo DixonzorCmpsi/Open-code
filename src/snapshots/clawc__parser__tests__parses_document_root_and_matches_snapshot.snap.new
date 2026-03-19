@@ -1,0 +1,289 @@
+---
+source: src/parser.rs
+assertion_line: 1370
+expression: document
+---
+Document {
+    imports: [
+        ImportDecl {
+            names: [
+                "WebScraper",
+            ],
+            source: "@claw/tools.browser",
+            span: 13..75,
+        },
+    ],
+    types: [
+        TypeDecl {
+            name: "SearchResult",
+            fields: [
+                TypeField {
+                    name: "url",
+                    data_type: String(
+                        363..369,
+                    ),
+                    constraints: [],
+                    span: 358..369,
+                },
+                TypeField {
+                    name: "confidence",
+                    data_type: Float(
+                        398..403,
+                    ),
+                    constraints: [
+                        Constraint {
+                            name: "min",
+                            value: SpannedExpr {
+                                expr: IntLiteral(
+                                    0,
+                                ),
+                                span: 409..410,
+                            },
+                            span: 404..424,
+                        },
+                    ],
+                    span: 386..424,
+                },
+            ],
+            span: 322..439,
+        },
+    ],
+    clients: [
+        ClientDecl {
+            name: "FastOpenAI",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            retries: Some(
+                3,
+            ),
+            timeout_ms: None,
+            endpoint: Some(
+                SpannedExpr {
+                    expr: Call(
+                        "env",
+                        [
+                            SpannedExpr {
+                                expr: StringLiteral(
+                                    "OPENAI_BASE_URL",
+                                ),
+                                span: 228..245,
+                            },
+                        ],
+                    ),
+                    span: 224..263,
+                },
+            ),
+            api_key: Some(
+                SpannedExpr {
+                    expr: Call(
+                        "env",
+                        [
+                            SpannedExpr {
+                                expr: StringLiteral(
+                                    "OPENAI_API_KEY",
+                                ),
+                                span: 277..293,
+                            },
+                        ],
+                    ),
+                    span: 273..307,
+                },
+            ),
+            span: 75..322,
+        },
+    ],
+    tools: [
+        ToolDecl {
+            name: "AnalyzeSentiment",
+            arguments: [
+                TypeField {
+                    name: "text",
+                    data_type: String(
+                        467..473,
+                    ),
+                    constraints: [],
+                    span: 461..473,
+                },
+            ],
+            return_type: Some(
+                Float(
+                    478..483,
+                ),
+            ),
+            invoke_path: Some(
+                "module(\"scripts.analysis\").function(\"get_sentiment\")",
+            ),
+            span: 439..590,
+        },
+    ],
+    agents: [
+        AgentDecl {
+            name: "Researcher",
+            extends: None,
+            client: Some(
+                "FastOpenAI",
+            ),
+            system_prompt: Some(
+                "Stay deterministic.",
+            ),
+            tools: [
+                "WebScraper",
+                "AnalyzeSentiment",
+            ],
+            settings: AgentSettings {
+                entries: [
+                    AgentSetting {
+                        name: "max_steps",
+                        value: Int(
+                            5,
+                        ),
+                        span: 803..837,
+                    },
+                    AgentSetting {
+                        name: "temperature",
+                        value: Float(
+                            0.1,
+                        ),
+                        span: 837..853,
+                    },
+                ],
+                span: 781..871,
+            },
+            span: 590..899,
+        },
+    ],
+    workflows: [
+        WorkflowDecl {
+            name: "Analyze",
+            arguments: [
+                TypeField {
+                    name: "company",
+                    data_type: String(
+                        925..931,
+                    ),
+                    constraints: [],
+                    span: 916..931,
+                },
+            ],
+            return_type: Some(
+                String(
+                    936..942,
+                ),
+            ),
+            body: Block {
+                statements: [
+                    LetDecl {
+                        name: "report",
+                        explicit_type: None,
+                        value: SpannedExpr {
+                            expr: ExecuteRun {
+                                agent_name: "Researcher",
+                                kwargs: [
+                                    (
+                                        "task",
+                                        SpannedExpr {
+                                            expr: Identifier(
+                                                "company",
+                                            ),
+                                            span: 1024..1031,
+                                        },
+                                    ),
+                                ],
+                                require_type: Some(
+                                    String(
+                                        1067..1073,
+                                    ),
+                                ),
+                            },
+                            span: 974..1109,
+                        },
+                        span: 961..1109,
+                    },
+                    Return {
+                        value: SpannedExpr {
+                            expr: Identifier(
+                                "report",
+                            ),
+                            span: 1116..1122,
+                        },
+                        span: 1109..1135,
+                    },
+                ],
+                span: 943..1136,
+            },
+            span: 899..1150,
+        },
+    ],
+    listeners: [
+        ListenerDecl {
+            name: "OnSlackMessage",
+            event_type: "Events.Slack.Message",
+            body: Block {
+                statements: [
+                    Expression(
+                        SpannedExpr {
+                            expr: MethodCall(
+                                SpannedExpr {
+                                    expr: Identifier(
+                                        "event",
+                                    ),
+                                    span: 1221..1226,
+                                },
+                                "reply",
+                                [
+                                    SpannedExpr {
+                                        expr: StringLiteral(
+                                            "done",
+                                        ),
+                                        span: 1233..1239,
+                                    },
+                                ],
+                            ),
+                            span: 1221..1253,
+                        },
+                    ),
+                ],
+                span: 1203..1254,
+            },
+            span: 1150..1268,
+        },
+    ],
+    tests: [
+        TestDecl {
+            name: "smoke",
+            body: Block {
+                statements: [
+                    Return {
+                        value: SpannedExpr {
+                            expr: StringLiteral(
+                                "ok",
+                            ),
+                            span: 1306..1310,
+                        },
+                        span: 1299..1323,
+                    },
+                ],
+                span: 1281..1324,
+            },
+            span: 1268..1338,
+        },
+    ],
+    mocks: [
+        MockDecl {
+            target_agent: "Researcher",
+            output: [
+                (
+                    "output",
+                    SpannedExpr {
+                        expr: StringLiteral(
+                            "mocked_output",
+                        ),
+                        span: 1380..1395,
+                    },
+                ),
+            ],
+            span: 1338..1418,
+        },
+    ],
+    span: 13..1418,
+}

@@ -1,6 +1,6 @@
 # Phase 3 Adversarial Review: DevOps, DX, and Scope Creep
 
-In this review, I am adopting the persona of a highly experienced Staff Engineer / Product Manager. I am evaluating the Phase 2 specs (`grammar.md`, `codegen.md`, `openclaw-os.md`) with a focus on deployment reality, testing, and system architecture.
+In this review, I am adopting the persona of a highly experienced Staff Engineer / Product Manager. I am evaluating the Phase 2 specs (`grammar.md`, `codegen.md`, `claw-os.md`) with a focus on deployment reality, testing, and system architecture.
 
 ### The Rules of Engagement
 If the Defender can justify the current specs, no action is taken. If the Attacker exposes a critical flaw that hurts the project's vision or introduces unacceptable scope creep, the Attacker wins, and the specs must be mutated.
@@ -10,12 +10,12 @@ If the Defender can justify the current specs, no action is taken. If the Attack
 ## Attack 1: The Gateway Monolith (Scope Creep)
 
 **Attacker (Staff Engineer):** 
-> "In Phase 2, you reverted exclusively to the 'Managed Gateway' architecture (`openclaw-os.md`). As a DevOps engineer, this is a nightmare. 
+> "In Phase 2, you reverted exclusively to the 'Managed Gateway' architecture (`claw-os.md`). As a DevOps engineer, this is a nightmare. 
 > To deploy a simple Next.js app with one `.claw` researcher agent, you are telling me I *must* run and maintain a separate, persistent WebSocket server (the GatewayOS) just to execute a script? 
 > You are forcing massive enterprise infrastructure onto local dev and indie hacker workflows. This is severe scope creep. BAML won because it's a lightweight library. If `.claw` requires standing up a standalone OS server just to run hello world, adoption will severely suffer."
 
 **Defender (Project Dev):**
-> "You are misunderstanding the core vision of OpenClaw. We are not building another TS wrapper library. We are building an **Agent Operating System**. 
+> "You are misunderstanding the core vision of Claw. We are not building another TS wrapper library. We are building an **Agent Operating System**. 
 > Offering a 'lightweight local mode' where users write their own Puppeteer scripts is exactly the type of un-deterministic scope-creep we want to avoid. The value proposition of `.claw` is that *the language does it itself*. The Gateway is an absolute requirement to guarantee that sandboxed, batteries-included environment."
 
 **Attacker:**

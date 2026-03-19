@@ -3,16 +3,16 @@ import test from "node:test";
 
 import {
   AgentExecutionError,
-  OpenClawClient,
-  OpenClawExecutionError
+  ClawClient,
+  ClawExecutionError
 } from "./index.js";
 
-test("OpenClawClient forwards api keys to the gateway", async () => {
+test("ClawClient forwards api keys to the gateway", async () => {
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async (url, options) => {
       assert.equal(url, "http://127.0.0.1:8080/workflows/execute");
-      assert.equal(options.headers["x-openclaw-key"], "prod_secret");
+      assert.equal(options.headers["x-claw-key"], "prod_secret");
       return {
         ok: true,
         async json() {
@@ -24,7 +24,7 @@ test("OpenClawClient forwards api keys to the gateway", async () => {
       };
     };
 
-    const client = new OpenClawClient({
+    const client = new ClawClient({
       endpoint: "http://127.0.0.1:8080",
       api_key: "prod_secret"
     });
@@ -40,7 +40,7 @@ test("OpenClawClient forwards api keys to the gateway", async () => {
   }
 });
 
-test("OpenClawClient raises resumable execution errors with the session id", async () => {
+test("ClawClient raises resumable execution errors with the session id", async () => {
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async () => ({
@@ -48,13 +48,13 @@ test("OpenClawClient raises resumable execution errors with the session id", asy
       async json() {
         return {
           status: "forbidden",
-          message: "Invalid OpenClaw API key",
+          message: "Invalid Claw API key",
           session_id: "sess_recover"
         };
       }
     });
 
-    const client = new OpenClawClient();
+    const client = new ClawClient();
     await assert.rejects(
       () =>
         client.executeWorkflow({
@@ -64,7 +64,7 @@ test("OpenClawClient raises resumable execution errors with the session id", asy
           resumeSessionId: "sess_recover"
         }),
       (error) => {
-        assert.ok(error instanceof OpenClawExecutionError);
+        assert.ok(error instanceof ClawExecutionError);
         assert.ok(error instanceof AgentExecutionError);
         assert.equal(error.sessionId, "sess_recover");
         assert.equal(error.status, "forbidden");

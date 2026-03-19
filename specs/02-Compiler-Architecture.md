@@ -1,6 +1,6 @@
-# OpenClaw Compiler (`clawc`) Architecture
+# Claw Compiler (`clawc`) Architecture
 
-The OpenClaw Compiler (`clawc`) is a standalone Rust binary responsible for parsing `.claw` language files, validating types, enforcing agent boundaries, and generating language-specific SDKs (TypeScript and Python).
+The Claw Compiler (`clawc`) is a standalone Rust binary responsible for parsing `.claw` language files, validating types, enforcing agent boundaries, and generating language-specific SDKs (TypeScript and Python).
 
 ## 1. High-Level Pipeline
 
@@ -79,7 +79,7 @@ Before generating any code, the compiler must prove that the `.claw` code is log
 
 This is the core "Magic" of the compiler.
 
-The compiler takes high-level structs and lowers them into the specific JSON Schema / TypeBox representation that the OpenClaw Gateway requires for **Constrained Decoding**.
+The compiler takes high-level structs and lowers them into the specific JSON Schema / TypeBox representation that the Claw Gateway requires for **Constrained Decoding**.
 
 For example, a `.claw` type:
 ```claw
@@ -89,7 +89,7 @@ type SearchResult {
 }
 ```
 
-Is translated internally in the compiler's memory to the exact syntax required by OpenClaw's Gateway tools.
+Is translated internally in the compiler's memory to the exact syntax required by Claw's Gateway tools.
 
 ---
 
@@ -103,7 +103,7 @@ This file will contain TypeScript interfaces mapping to the `.claw` types, and a
 
 **Target 2: Python (`clawc generate --target python`)**
 Generates `generated/claw.py`.
-Creates Pydantic models for the `.claw` types and asynchronous Python functions (using `asyncio` and `websockets`) to trigger the OpenClaw Gateway.
+Creates Pydantic models for the `.claw` types and asynchronous Python functions (using `asyncio` and `websockets`) to trigger the Claw Gateway.
 
 ## 5. Exit Code Mapping
 

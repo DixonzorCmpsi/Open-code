@@ -2,7 +2,7 @@
 
 This spec covers remaining gateway features from specs 07, 11, 12, 13. Focus: graceful shutdown, visual stability, production WebSocket, rate limiting, structured logging.
 
-**Prerequisite:** Read `specs/07-OpenClaw-OS.md`, `specs/11-WebSocket-Protocol.md`, `specs/12-Security-Model.md`, `specs/13-Visual-Intelligence.md`.
+**Prerequisite:** Read `specs/07-Claw-OS.md`, `specs/11-WebSocket-Protocol.md`, `specs/12-Security-Model.md`, `specs/13-Visual-Intelligence.md`.
 
 ---
 

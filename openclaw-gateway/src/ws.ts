@@ -1,5 +1,5 @@
 /**
- * Lightweight RFC 6455 WebSocket implementation for the OpenClaw Gateway.
+ * Lightweight RFC 6455 WebSocket implementation for the Claw Gateway.
  *
  * Uses only Node.js built-in modules — no external WS library needed.
  * Supports text frames (opcode 0x01) for JSON streaming of checkpoint events.

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { isSchemaDegraded } from "./schema.ts";
 
 test("isSchemaDegraded: individual 0 is NOT degraded (legitimate data)", () => {
-  // Per specs/07-OpenClaw-OS.md Section 2.4: individual 0 is valid
+  // Per specs/07-Claw-OS.md Section 2.4: individual 0 is valid
   assert.equal(
     isSchemaDegraded({ count: 0, name: "Alice", verified: true }),
     false

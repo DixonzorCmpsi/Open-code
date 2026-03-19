@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: claw-sdk
+Version: 0.1.0
+Summary: Python client stub for the Claw gateway
+Requires-Python: >=3.9

@@ -2,6 +2,7 @@
   "name": "claw",
   "displayName": "Claw DSL",
   "description": "Language support and file icons for the Claw Compiler (.claw)",
+  "icon": "images/claw-icon.png",
   "version": "1.0.0",
   "engines": {
     "vscode": "^1.80.0"

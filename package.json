@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-workspace",
+  "name": "claw-workspace",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,7 +12,7 @@
     "smoke:ts": "node --experimental-strip-types scripts/ts-smoke-test.mjs"
   },
   "dependencies": {
-    "@openclaw/sdk": "file:packages/openclaw-sdk",
+    "@claw/sdk": "file:packages/openclaw-sdk",
     "redis": "^5.11.0",
     "zod": "file:packages/zod"
   }

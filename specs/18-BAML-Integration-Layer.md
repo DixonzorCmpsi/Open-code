@@ -1,6 +1,6 @@
 # Phase 6D: BAML Integration Layer
 
-OpenClaw's LLM boundary currently makes raw HTTP calls with no retry, no constrained decoding, and minimal prompt engineering. BAML solves these problems. This spec defines how `clawc` emits BAML definitions and how the gateway calls them.
+Claw's LLM boundary currently makes raw HTTP calls with no retry, no constrained decoding, and minimal prompt engineering. BAML solves these problems. This spec defines how `clawc` emits BAML definitions and how the gateway calls them.
 
 **The developer writes ONLY `.claw`. BAML is an invisible compilation target.**
 
@@ -54,11 +54,11 @@ example.claw
 After `clawc build`, the developer (or CI) runs `npx baml-cli generate` to produce the typed BAML client from the `.baml` files. This is a TWO-STEP build:
 
 ```bash
-openclaw build           # .claw → SDK + .baml files
+claw build           # .claw → SDK + .baml files
 npx baml-cli generate    # .baml files → baml_client/ (typed TS/Python)
 ```
 
-`openclaw build` can orchestrate both steps automatically when BAML is installed.
+`claw build` can orchestrate both steps automatically when BAML is installed.
 
 ### 1.2 Runtime Flow
 
@@ -493,15 +493,15 @@ export async function loadBamlClient(workspaceRoot: string, force = false): Prom
 }
 ```
 
-The gateway calls `loadBamlClient(workspaceRoot)` on every request. The function checks the file's mtime and only reloads if the generated client has changed. This supports hot reload during `openclaw dev`.
+The gateway calls `loadBamlClient(workspaceRoot)` on every request. The function checks the file's mtime and only reloads if the generated client has changed. This supports hot reload during `claw dev`.
 
 ---
 
 ## 6. Validation Strategy: BAML Types Win, TypeBox Is Defense-in-Depth
 
-BAML validates output using its own type system. TypeBox validates using OpenClaw's schema.
+BAML validates output using its own type system. TypeBox validates using Claw's schema.
 
-**Rule:** If BAML returns a result, the TypeBox validation still runs. If TypeBox validation fails after BAML succeeds, this indicates a codegen bug (BAML types drifted from OpenClaw types). Per the fail-fast philosophy, the gateway MUST throw a `SchemaDegradationError` with a descriptive message including both the BAML function name and the specific TypeBox validation failure. This is NOT silently swallowed.
+**Rule:** If BAML returns a result, the TypeBox validation still runs. If TypeBox validation fails after BAML succeeds, this indicates a codegen bug (BAML types drifted from Claw types). Per the fail-fast philosophy, the gateway MUST throw a `SchemaDegradationError` with a descriptive message including both the BAML function name and the specific TypeBox validation failure. This is NOT silently swallowed.
 
 **In practice:** TypeBox validation should almost never fail after BAML succeeds. If it does, it's a bug in the BAML emitter's type mapping and must be surfaced immediately, not hidden behind a warning.
 
@@ -523,7 +523,7 @@ BAML validates output using its own type system. TypeBox validates using OpenCla
 
 ### 7.2 BAML CLI
 
-The developer installs `@boundaryml/baml` globally or as a project dependency. `openclaw build` detects if `baml-cli` is available and runs `baml-cli generate` automatically after emitting `.baml` files.
+The developer installs `@boundaryml/baml` globally or as a project dependency. `claw build` detects if `baml-cli` is available and runs `baml-cli generate` automatically after emitting `.baml` files.
 
 ---
 

@@ -222,7 +222,7 @@ class SqliteCheckpointBackend implements CheckpointBackend {
 
   async loadHistoricalEvents(sessionId: string): Promise<Map<string, unknown>> {
     const rows = this.database
-      .prepare(`SELECT node_path, payload_json FROM session_events WHERE session_id = ?`)
+      .prepare(`SELECT node_path, payload_json FROM session_events WHERE session_id = ? AND event_type != 'human_intervention_required'`)
       .all(sessionId) as Array<{ node_path: string; payload_json: string }>;
     
     const eventsMap = new Map<string, unknown>();
@@ -341,8 +341,10 @@ class RedisCheckpointBackend implements CheckpointBackend {
     const events = (client.lRange ? await client.lRange(this.eventsKey(sessionId), 0, -1) : []) as string[];
     const eventsMap = new Map<string, unknown>();
     for (const eventStr of events) {
-      const event = JSON.parse(eventStr) as { node_path: string; payload_json: string };
-      eventsMap.set(event.node_path, JSON.parse(event.payload_json));
+      const event = JSON.parse(eventStr) as { node_path: string; payload_json: string; event_type: string };
+      if (event.event_type !== "human_intervention_required") {
+        eventsMap.set(event.node_path, JSON.parse(event.payload_json));
+      }
     }
     return eventsMap;
   }

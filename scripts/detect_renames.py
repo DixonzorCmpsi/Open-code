@@ -4,8 +4,8 @@ import re
 RULES = [
     (r'\bopenclaw\b', 'claw', 'User-facing strings (lower)'),
     (r'\bOpenClaw\b', 'Claw', 'User-facing strings (upper)'),
-    (r'\bOPENCLAW_[A-Z0-Z_]+', 'CLAW_*', 'Env vars'),
-    (r'x-openclaw-key', 'x-claw-key', 'HTTP headers'),
+    (r'\bCLAW_[A-Z0-Z_]+', 'CLAW_*', 'Env vars'),
+    (r'x-claw-key', 'x-claw-key', 'HTTP headers'),
     (r'\.openclaw\b', '.claw', 'State directory'),
     (r'\bopenclaw\.json\b', 'claw.json', 'Config file'),
     (r'\[openclaw-gateway\]', '[claw-gateway]', 'Log prefixes'),
@@ -15,9 +15,9 @@ RULES = [
 
 EXCLUDES = [
     'openclaw-gateway', 
-    'OpenClawConfig', 'OpenClawCliError', 'OpenClawClient',
-    '@openclaw/sdk', 'openclaw_sdk', '@openclaw/tools.browser',
-    'OPENCLAW_AST_HASH',
+    'ClawConfig', 'ClawCliError', 'ClawClient',
+    '@claw/sdk', 'claw_sdk', '@claw/tools.browser',
+    'CLAW_AST_HASH',
 ]
 
 TARGETS = [
@@ -44,8 +44,8 @@ def scan_file(filepath):
                     val = m.group(0)
                     if val in EXCLUDES or any(val in ex for ex in EXCLUDES) or any(ex in val for ex in EXCLUDES):
                         continue
-                    # specifically check OPENCLAW_AST_HASH
-                    if 'OPENCLAW_AST_HASH' in val:
+                    # specifically check CLAW_AST_HASH
+                    if 'CLAW_AST_HASH' in val:
                         continue
                     if 'openclaw-gateway' in val:
                         if pat != r'\[openclaw-gateway\]':

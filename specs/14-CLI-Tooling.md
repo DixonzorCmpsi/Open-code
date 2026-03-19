@@ -1,16 +1,16 @@
-# OpenClaw CLI Tooling
+# Claw CLI Tooling
 
-This document specifies the `openclaw` CLI binary, its commands, configuration system, and the `claw-lsp` language server.
+This document specifies the `claw` CLI binary, its commands, configuration system, and the `claw-lsp` language server.
 
 ---
 
 ## 1. Command Overview
 
-The `openclaw` binary is built in Rust and distributed as a standalone executable alongside `clawc`.
+The `claw` binary is built in Rust and distributed as a standalone executable alongside `clawc`.
 
 | Command | Purpose |
 |---------|---------|
-| `claw init` | Scaffold a new OpenClaw project |
+| `claw init` | Scaffold a new Claw project |
 | `claw build` | Compile `.claw` source to SDK files |
 | `claw dev` | Hot-reload development server (watch + gateway) |
 | `claw test` | Run `.claw` test blocks with mock injection (see `specs/17-Phase6-Test-Runner-And-Mocks.md`) |

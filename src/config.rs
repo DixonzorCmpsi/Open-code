@@ -13,7 +13,7 @@ pub enum BuildLanguage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OpenClawConfig {
+pub struct ClawConfig {
     pub gateway: GatewayConfig,
     pub build: BuildConfig,
     pub runtimes: RuntimeConfig,
@@ -51,7 +51,7 @@ pub struct LlmProviderConfig {
     pub default_model: String,
 }
 
-impl OpenClawConfig {
+impl ClawConfig {
     pub fn template(default_source: impl Into<PathBuf>) -> Self {
         Self {
             gateway: GatewayConfig {
@@ -119,13 +119,13 @@ impl OpenClawConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{BuildLanguage, OpenClawConfig};
+    use super::{BuildLanguage, ClawConfig};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn template_contains_gateway_runtimes_and_llm_providers() {
-        let config = OpenClawConfig::template("example.claw");
+        let config = ClawConfig::template("example.claw");
         let rendered = serde_json::to_string_pretty(&config).unwrap();
 
         assert_eq!(config.build.language, BuildLanguage::Ts);
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn writes_and_reads_config_roundtrip() {
-        let config = OpenClawConfig::template("example.claw");
+        let config = ClawConfig::template("example.claw");
         let path = std::env::temp_dir().join(format!(
             "claw-config-{}.json",
             SystemTime::now()
@@ -152,7 +152,7 @@ mod tests {
         ));
 
         config.write_pretty(&path).unwrap();
-        let loaded = OpenClawConfig::load(&path).unwrap();
+        let loaded = ClawConfig::load(&path).unwrap();
 
         assert_eq!(loaded, config);
 
@@ -192,7 +192,7 @@ mod tests {
         )
         .unwrap();
 
-        let loaded = OpenClawConfig::load(&path).unwrap();
+        let loaded = ClawConfig::load(&path).unwrap();
 
         assert_eq!(loaded.gateway.executable, None);
         assert_eq!(loaded.gateway.cors_origin, None);

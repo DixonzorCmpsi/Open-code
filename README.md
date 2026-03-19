@@ -79,12 +79,12 @@ workflow AnalyzeCompetitor(target_url: string) -> CompetitorData {
 
 Then, in your **TypeScript Next.js Project**:
 ```typescript
-import { OpenClawClient } from "@openclaw/sdk"
+import { ClawClient } from "@claw/sdk"
 import { AnalyzeCompetitor } from "./generated/claw"
 
 // Natively execute the agent orchestration and get a perfectly typed result
 const result = await AnalyzeCompetitor({
-    client: new OpenClawClient({ endpoint: "http://127.0.0.1:8080" }),
+    client: new ClawClient({ endpoint: "http://127.0.0.1:8080" }),
     resumeSessionId: undefined
 }, "https://apple.com")
 
@@ -104,7 +104,7 @@ The internal mechanics of the `.claw` compiler and the Gateway architecture are 
 4. [AST Structures (Rust)](specs/04-AST-Structures.md)
 5. [Type System & Safety](specs/05-Type-System.md)
 6. [SDK CodeGen (TS/Python)](specs/06-CodeGen-SDK.md)
-7. [The Claw OS Contract](specs/07-OpenClaw-OS.md)
+7. [The Claw OS Contract](specs/07-Claw-OS.md)
 8. [Testing Specifications](specs/08-Testing-Spec.md)
 9. [Implementation Flow](specs/09-Implementation-Flow.md)
 10. [Final GAN Architecture Audit](specs/10-GAN-Final-Audit.md)

@@ -1,8 +1,8 @@
-# OpenClaw Agent DSL (.claw) Core Specifications
+# Claw Agent DSL (.claw) Core Specifications
 
 ## 1. Overview and Motivation
 
-The OpenClaw orchestration language (`.claw`) is a domain-specific language purposefully built to give developers **deterministic, programmable control over non-deterministic AI agents**.
+The Claw orchestration language (`.claw`) is a domain-specific language purposefully built to give developers **deterministic, programmable control over non-deterministic AI agents**.
 
 Instead of writing orchestrations as brittle string prompts or unstructured JSON configurations, the `.claw` DSL treats Agents, Tools, and Events as strongly-typed objects in an execution graph. The language is designed to look native to C/Python developers while ensuring strict compile-time checks on state and tool usage boundaries.
 
@@ -30,9 +30,9 @@ type SearchResult {
 
 ```claw
 // Tools are the deterministic bridges to the real world.
-// You can import native OpenClaw tools directly:
-import { WebScraper } from "@openclaw/tools.browser"
-import { FileSystem } from "@openclaw/tools.fs"
+// You can import native Claw tools directly:
+import { WebScraper } from "@claw/tools.browser"
+import { FileSystem } from "@claw/tools.fs"
 
 // Or define your own tools that bridge to existing code:
 tool AnalyzeSentiment(text: string) -> float {
@@ -145,7 +145,7 @@ workflow AnalyzeCompetitors(companies: list<string>) -> list<string> {
 
 ## 5. Event/Routing Specifications
 
-The DSL can define listeners to trigger workflows conditionally based on OpenClaw Gateway events.
+The DSL can define listeners to trigger workflows conditionally based on Claw Gateway events.
 
 ```claw
 listener OnSlackMessage(event: Events.Slack.Message) {
@@ -169,10 +169,10 @@ The AI reads the manual, thinks about it, and then tries to steer and hit the ga
 
 To fix this, developers try to build better instruction manuals ("prompt engineering") or train smaller, smarter AI models to be better drivers. But at the end of the day, you can never 100% guarantee the AI won't accidentally hit the gas.
 
-### The OpenClaw Way (The Steel Tube)
-OpenClaw fixes this by removing the steering wheel and gas pedals entirely. 
+### The Claw Way (The Steel Tube)
+Claw fixes this by removing the steering wheel and gas pedals entirely. 
 
-Instead of teaching the AI how to drive, OpenClaw puts the AI's car inside a physical, unbendable **steel tube** on a roller-coaster track that goes exactly where you want it to go. 
+Instead of teaching the AI how to drive, Claw puts the AI's car inside a physical, unbendable **steel tube** on a roller-coaster track that goes exactly where you want it to go. 
 
 **How does this work in code?**
 Instead of writing a long prompt, the developer writes a single line of code in the `.claw` language:
@@ -180,7 +180,7 @@ Instead of writing a long prompt, the developer writes a single line of code in 
 tool SearchWeb(query: string, max_results: int)
 ```
 
-Behind the scenes, the OpenClaw Compiler (`clawc`) instantly translates that line into a rigid **TypeBox Schema** (a strictly formatted JSON blueprint) that looks exactly like this:
+Behind the scenes, the Claw Compiler (`clawc`) instantly translates that line into a rigid **TypeBox Schema** (a strictly formatted JSON blueprint) that looks exactly like this:
 ```json
 {
   "type": "object",
@@ -196,7 +196,7 @@ This strict JSON structure *is* the Blueprint. It mathematically defines that th
 **How does the server actually enforce the blueprint? (The Bouncer Analogy)**
 To understand *how* the server forces the AI into the steel tube, you have to know how AI writes sentences. AI doesn't think in whole sentences; it guesses one word (or "token") at a time. It's like someone playing a guessing game: *"I like to eat..."* and the AI guesses *"apples"*.
 
-When OpenClaw sends its TypeBox blueprint to the AI server (like OpenAI or Claude), the server puts a "Bouncer" at the door of the AI's brain. 
+When Claw sends its TypeBox blueprint to the AI server (like OpenAI or Claude), the server puts a "Bouncer" at the door of the AI's brain. 
 
 Every single time the AI tries to guess the next word, the Bouncer checks the blueprint:
 1. The AI thinks: *"The next word should be the number 5, at 90% probability!"*
@@ -220,14 +220,14 @@ In the background, the `.claw` language turns this into a strict blueprint. When
 4. **The Bouncer steps in:** The Bouncer looks at the blueprint and sees `max_pages: int`. It says to the AI, *"You cannot type the quote mark `"` here. You can only type numbers `0-9`."*
 5. **The Correction:** The AI's probability for typing `"` drops to 0%. It is physically forced to type the number `5` instead.
 
-The resulting output is perfectly formatted `{"target_url": "https://wikipedia.org", "max_pages": 5}`, and the OpenClaw system executes the scraper tool flawlessly.
+The resulting output is perfectly formatted `{"target_url": "https://wikipedia.org", "max_pages": 5}`, and the Claw system executes the scraper tool flawlessly.
 
 ### How does the Tube know when to turn on?
 You might wonder: *Does the Bouncer check every single word the AI ever says? How does it know we are doing a tool call right now?*
 
-The answer lies in how modern AI APIs (like OpenAI) are structured. When OpenClaw talks to the AI, it doesn't just send one giant chat message. It sends a structured package with two distinct parts:
+The answer lies in how modern AI APIs (like OpenAI) are structured. When Claw talks to the AI, it doesn't just send one giant chat message. It sends a structured package with two distinct parts:
 1. **The Chat Log:** (e.g., "User: Can you scrape this website?")
-2. **The Tools List:** A special API field (called `tools` in OpenAI) where OpenClaw attaches the TypeBox blueprints. 
+2. **The Tools List:** A special API field (called `tools` in OpenAI) where Claw attaches the TypeBox blueprints. 
 
 When the AI receives this package, it makes a high-level choice: *"Should I reply with a normal message to the user, OR should I call a tool?"*
 
@@ -265,14 +265,14 @@ A compiler's entire job is managing heavily nested tree data structures (ASTs). 
 ### Summary of the Flow
 1. **The Language:** Rust for the core `clawc` compiler.
 2. **The Output:** The compiler will *generate* SDK files in **TypeScript** and **Python** (so developers can use the language they are most comfortable with).
-3. **The Engine:** The generated code will securely talk to the existing **TypeScript** OpenClaw Gateway.
+3. **The Engine:** The generated code will securely talk to the existing **TypeScript** Claw Gateway.
 
 ## 8. Managing AI Pitfalls (Context Limits & Garbage Collection)
 
 To prevent severe runtime bottlenecks such as OOM (Out-of-Memory) errors or Token Limit Exhaustion, `.claw` dictates strict paradigms for managing both software RAM and LLM context.
 
 **Systems Memory & Garbage Collection (RAM):**
-Standard DSLs (like C) require manual memory management (`malloc` / `free`). Because `.claw` compiles directly into high-level AST environments like TypeScript/Node (V8) and Python (CPython), the runtime seamlessly inherits their heavily optimized automatic Garbage Collection (GC). You do not manually allocate or free primitive arrays; the OpenClaw Gateway runtime purges out-of-scope variables automatically. 
+Standard DSLs (like C) require manual memory management (`malloc` / `free`). Because `.claw` compiles directly into high-level AST environments like TypeScript/Node (V8) and Python (CPython), the runtime seamlessly inherits their heavily optimized automatic Garbage Collection (GC). You do not manually allocate or free primitive arrays; the Claw Gateway runtime purges out-of-scope variables automatically. 
 
 **Context Window Pruning (LLM Tokens):**
 While RAM is managed automatically, **LLM Token Context** is the true bottleneck in agent architecture. Instead of blindly handing off massive, infinite `Session` objects between agents and hitting the 128k token limit, `.claw` exposes native Memory module primitives.
@@ -331,14 +331,14 @@ If you write a `.claw` workflow, you can easily wrap it in a frontend or access 
 ```typescript
 // 1. You import the strictly-typed workflow generated by the `clawc` compiler
 import { AnalyzeCompetitors } from "../generated/claw"
-import { OpenClawClient } from "@openclaw/sdk"
+import { ClawClient } from "@claw/sdk"
 
 import express from 'express'
 const app = express()
 app.use(express.json())
 
 // 2. Connect to the heavy Gateway (which handles the LLMs, Browsers, and Sandboxes internally)
-const gateway = new OpenClawClient({ url: "ws://localhost:8080" })
+const gateway = new ClawClient({ url: "ws://localhost:8080" })
 
 // 3. You build your standard API endpoint
 app.post('/api/research', async (req, res) => {

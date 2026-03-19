@@ -6,11 +6,11 @@ pub(super) fn generate(document: &Document) -> CompilerResult<String> {
     let document_hash = document_ast_hash(document);
     let mut sections = vec![[
         r#"import { z } from "zod";"#,
-        r#"import { OpenClawClient } from "@openclaw/sdk";"#,
+        r#"import { ClawClient } from "@claw/sdk";"#,
     ]
     .join("\n")];
     sections.push(format!(
-        r#"export const OPENCLAW_AST_HASH = "{document_hash}";"#
+        r#"export const CLAW_AST_HASH = "{document_hash}";"#
     ));
 
     for declaration in &document.types {
@@ -94,7 +94,7 @@ fn render_workflow(workflow: &WorkflowDecl) -> String {
         .unwrap_or_else(|| "    return;\n".to_owned());
 
     format!(
-        "export const {} = async (\n    {}options: {{ client: OpenClawClient; resumeSessionId?: string }}\n): Promise<{}> => {{\n    const result = await options.client.executeWorkflow({{\n        workflowName: \"{}\",\n        arguments: {},\n        astHash: OPENCLAW_AST_HASH,\n        resumeSessionId: options.resumeSessionId,\n    }});\n\n{}}};",
+        "export const {} = async (\n    {}options: {{ client: ClawClient; resumeSessionId?: string }}\n): Promise<{}> => {{\n    const result = await options.client.executeWorkflow({{\n        workflowName: \"{}\",\n        arguments: {},\n        astHash: CLAW_AST_HASH,\n        resumeSessionId: options.resumeSessionId,\n    }});\n\n{}}};",
         workflow.name,
         arguments_signature,
         return_type,

@@ -56,7 +56,7 @@ async function callOpenAI(request: LlmBridgeRequest): Promise<unknown> {
       input: [
         {
           role: "system",
-          content: request.agent.system_prompt ?? "You are a deterministic OpenClaw execution agent."
+          content: request.agent.system_prompt ?? "You are a deterministic Claw execution agent."
         },
         {
           role: "user",
@@ -66,7 +66,7 @@ async function callOpenAI(request: LlmBridgeRequest): Promise<unknown> {
       text: {
         format: {
           type: "json_schema",
-          name: request.returnType?.name ?? "OpenClawResult",
+          name: request.returnType?.name ?? "ClawResult",
           schema: request.returnSchema
         }
       }
@@ -92,7 +92,7 @@ async function callOpenAI(request: LlmBridgeRequest): Promise<unknown> {
 }
 
 /**
- * Per specs/07-OpenClaw-OS.md Section 6: use Anthropic's `tools` parameter
+ * Per specs/07-Claw-OS.md Section 6: use Anthropic's `tools` parameter
  * with `input_schema` for constrained output. Extract result from
  * content[].type === "tool_use" → content[].input.
  *
@@ -113,7 +113,7 @@ async function callAnthropic(request: LlmBridgeRequest): Promise<unknown> {
     body: JSON.stringify({
       model: request.client!.model,
       max_tokens: 4096,
-      system: request.agent.system_prompt ?? "You are a deterministic OpenClaw execution agent.",
+      system: request.agent.system_prompt ?? "You are a deterministic Claw execution agent.",
       tools: [
         {
           name: "structured_output",

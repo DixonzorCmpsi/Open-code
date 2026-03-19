@@ -1,4 +1,4 @@
-# OpenClaw DSL: Type System & Static Analysis
+# Claw DSL: Type System & Static Analysis
 
 Once the parser has created the `ast::Document`, the compiler enters Phase 2: Static Analysis.
 
@@ -69,7 +69,7 @@ type ProductLink {
 }
 ```
 
-The compiler attaches these lowered schemas directly to the AST nodes. They will be embedded into the final SDK as string literals, ready to be sent to the OpenClaw Gateway.
+The compiler attaches these lowered schemas directly to the AST nodes. They will be embedded into the final SDK as string literals, ready to be sent to the Claw Gateway.
 
 ## 3. Boundary Safety Limitations
 

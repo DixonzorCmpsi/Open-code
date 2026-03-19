@@ -1,4 +1,4 @@
-# OpenClaw Compiler: Implementation Flow
+# Claw Compiler: Implementation Flow
 
 This document serves as the exact code process specification for the Agent building the `clawc` compiler. It defines the codebase structure and the strict order of operations required to build the compiler successfully.
 
@@ -26,12 +26,12 @@ The repository will be structured as a standard Rust CLI application (`cargo new
 │   │   ├── typescript.rs    # TS SDK emitter (Zod schemas)
 │   │   └── python.rs        # Python SDK emitter (Pydantic models)
 │   ├── errors.rs            # CompilerError enums with Spans + exit code mapping
-│   ├── config.rs            # openclaw.json configuration (specs/14-CLI-Tooling.md)
+│   ├── config.rs            # claw.json configuration (specs/14-CLI-Tooling.md)
 │   ├── lsp.rs               # LSP utilities (diagnostics, completion, semantic tokens)
 │   └── bin/
-│       ├── openclaw.rs      # `openclaw` CLI (init, build, dev) (specs/14-CLI-Tooling.md)
+│       ├── claw.rs      # `claw` CLI (init, build, dev) (specs/14-CLI-Tooling.md)
 │       └── claw-lsp.rs      # LSP server binary (tower-lsp)
-├── openclaw-gateway/        # TypeScript execution OS (specs/07-OpenClaw-OS.md)
+├── openclaw-gateway/        # TypeScript execution OS (specs/07-Claw-OS.md)
 │   └── src/
 │       ├── server.ts        # HTTP server + WebSocket upgrade
 │       ├── auth.ts          # API key authentication (specs/12-Security-Model.md)
@@ -104,7 +104,7 @@ The builder MUST construct the compiler sequentially. Do not jump to Phase 3 (Co
 4. For production: migrate to `ws` library (specs/11-WebSocket-Protocol.md Section 1).
 
 ### Step 8: CLI Tooling
-1. Implement `openclaw init` (specs/14-CLI-Tooling.md Section 2).
-2. Implement `openclaw build --watch` (specs/14-CLI-Tooling.md Section 3).
-3. Implement `openclaw dev` with gateway child process (specs/14-CLI-Tooling.md Section 4).
+1. Implement `claw init` (specs/14-CLI-Tooling.md Section 2).
+2. Implement `claw build --watch` (specs/14-CLI-Tooling.md Section 3).
+3. Implement `claw dev` with gateway child process (specs/14-CLI-Tooling.md Section 4).
 4. Implement `claw-lsp` language server (specs/14-CLI-Tooling.md Section 6).

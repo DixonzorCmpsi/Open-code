@@ -35,7 +35,7 @@ Furthermore, it must support an environment variable `CLAW_DOWNLOAD_MIRROR` (all
 ## 3. Resolving Execution Contexts in Downstream SDKs
 
 **Breaker (The Attacker):**
-> "Because the compiler is now hidden loosely inside `node_modules/.bin/claw`, what happens inside the execution gateway (`07-OpenClaw-OS.md`)? 
+> "Because the compiler is now hidden loosely inside `node_modules/.bin/claw`, what happens inside the execution gateway (`07-Claw-OS.md`)? 
 > When the gateway does hot-reloading or needs to spawn a child process to parse AST configurations, where does it look? If a developer installed it globally (`npm i -g`) versus locally as a devDependency, your `exec()` calls will crash with 'EACCES: permission denied' or 'Claw not found'. You've fragmented the resolution context!"
 
 **Maker (The Defender):**

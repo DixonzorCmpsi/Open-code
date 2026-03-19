@@ -1,5 +1,5 @@
 {
-  "name": "@openclaw/sdk",
+  "name": "@claw/sdk",
   "version": "0.1.0",
   "type": "module",
   "exports": {

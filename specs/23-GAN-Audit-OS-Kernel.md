@@ -31,7 +31,7 @@ Inside `traversal.ts`, `evaluateExpr` will perform an instant `O(1)` memory map 
 > CI/CD pipelines constantly wipe directories. Developers run `git clean` or `claw clean`. Docker containers rebuild ephemerally. The moment the Gateway restarts, those old `.json` files are gone. The suspended workflow wakes up, asks the filesystem for its legacy schema, gets a `404 File Not Found`, and permanently drops dead. You cannot rely on a transient build directory for durable Event Sourcing."
 
 **Maker (The Defender):**
-> "You've highlighted a critical flaw in relying on the local compiler output. The OpenClaw OS Gateway must be entirely decoupled from the compiler's transient filesystem."
+> "You've highlighted a critical flaw in relying on the local compiler output. The Claw OS Gateway must be entirely decoupled from the compiler's transient filesystem."
 
 **Resolution (MAKER YIELDS - DATABASE UPGRADE):**
 *Implementation Fix:* We will decouple the Gateway boundaries. 

@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-Deploying a `.claw` pipeline to a production environment requires two distinct layers: The Generated SDK (Client) and the OpenClaw Gateway (The Operating System).
+Deploying a `.claw` pipeline to a production environment requires two distinct layers: The Generated SDK (Client) and the Claw Gateway (The Operating System).
 
 ---
 
@@ -24,29 +24,29 @@ Add the `clawc build` command directly into your `package.json` build scripts so
 For local iteration, the new workspace CLI can bootstrap and watch your project:
 
 ```bash
-openclaw init
-openclaw build --watch
+claw init
+claw build --watch
 ```
 
 ---
 
-## 2. Deploying the OpenClaw OS Gateway
+## 2. Deploying the Claw OS Gateway
 
 The generated SDK makes WebSocket or REST calls out to the Heavy execution runtime. 
 
 By default, during local development, you do not need Authentication or a Redis Database. Your SDK simply spins up an ephemeral local gateway (or connects to `localhost:8080` unauthenticated) and uses a local SQLite file for checkpointing. 
 
-For production, you must scale the OpenClaw OS persistently and secure it.
+For production, you must scale the Claw OS persistently and secure it.
 
 ### The Gateway Docker Container
-The OpenClaw OS requires Node.js, Playwright (Browser primitives), and secure sandboxing capabilities for external Custom Tools.
+The Claw OS requires Node.js, Playwright (Browser primitives), and secure sandboxing capabilities for external Custom Tools.
 
 We provide a specialized high-performance Docker image intended for execution on managed services like AWS ECS, Azure Container Apps, or Google Cloud Run.
 
 ```yaml
 version: '3.8'
 services:
-  openclaw-os:
+  claw-os:
     image: openclaw/gateway-os:latest
     environment:
       # Inject whatever endpoints your local models or APIs need
@@ -68,12 +68,12 @@ services:
 In your Next.js API route or Python backend:
 
 ```typescript
-import { OpenClawClient } from "@openclaw/sdk"
+import { ClawClient } from "@claw/sdk"
 import { AnalyzeCompetitor } from "./generated/claw"
 
 // Point the client wrapper at your internal VPC Gateway
 // If hitting localhost, api_key is not needed.
-const prodGateway = new OpenClawClient({ 
+const prodGateway = new ClawClient({ 
     endpoint: "https://openclaw-os.internal.vpc.com",
     api_key: process.env.CLAW_GATEWAY_API_KEY 
 })
@@ -94,9 +94,9 @@ export async function POST(req: Request) {
 
 ## 3. Resume Checkpoints (Crash Recovery)
 
-If your massive `.claw` workflow crashes midway through a 500-item `for` loop because the OpenClaw OS container was OOM-Killed, you can effortlessly resume it by referencing the exact AST state.
+If your massive `.claw` workflow crashes midway through a 500-item `for` loop because the Claw OS container was OOM-Killed, you can effortlessly resume it by referencing the exact AST state.
 
-Because you provided a `REDIS_URL` to the OpenClaw Gateway, the OS automatically saved the deterministic `Session` state after every loop. 
+Because you provided a `REDIS_URL` to the Claw Gateway, the OS automatically saved the deterministic `Session` state after every loop. 
 
 Catch the crash in your web server, grab the failed `Session ID`, and pass it back in:
 
@@ -104,7 +104,7 @@ Catch the crash in your web server, grab the failed `Session ID`, and pass it ba
 try {
     const report = await AnalyzeCompetitor("https://apple.com", { client: prodGateway })
 } catch (error) {
-    if (error instanceof OpenClawExecutionError) {
+    if (error instanceof ClawExecutionError) {
         console.log("Server crashed on step 250. Checkpoint ID:", error.sessionId);
         
         // Pass the session ID back in to resume execution instantly where it failed:

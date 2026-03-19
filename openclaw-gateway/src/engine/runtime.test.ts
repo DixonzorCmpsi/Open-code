@@ -48,17 +48,27 @@ test("docker sandbox commands are locked down for python and typescript runtimes
 });
 
 test("sandbox execution aborts after the configured timeout", async () => {
-  const result = executeCustomTool(
-    'python("scripts/sandbox_echo.py")',
-    { sleep: 30 },
-    workspaceRoot,
-    { timeoutMs: 500 }
-  );
+  const originalBackend = process.env.CLAW_SANDBOX_BACKEND;
+  process.env.CLAW_SANDBOX_BACKEND = "local";
+  try {
+    const result = executeCustomTool(
+      'python("scripts/sandbox_echo.py")',
+      { sleep: 30 },
+      workspaceRoot,
+      { timeoutMs: 500 }
+    );
 
-  await assert.rejects(result, (error: Error) => {
-    assert.ok(error.message.includes("timed out"));
-    return true;
-  });
+    await assert.rejects(result, (error: Error) => {
+      assert.ok(error.message.includes("timed out"));
+      return true;
+    });
+  } finally {
+    if (originalBackend !== undefined) {
+      process.env.CLAW_SANDBOX_BACKEND = originalBackend;
+    } else {
+      delete process.env.CLAW_SANDBOX_BACKEND;
+    }
+  }
 });
 
 test("transient tool failures are retried with exponential backoff", async () => {

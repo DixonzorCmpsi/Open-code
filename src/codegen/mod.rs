@@ -449,7 +449,7 @@ mod tests {
     }
 
     fn normalize_ast_hash(output: &str) -> String {
-        let prefix = r#"export const OPENCLAW_AST_HASH = ""#;
+        let prefix = r#"export const CLAW_AST_HASH = ""#;
         let Some(pos) = output.find(prefix) else {
             return output.to_owned();
         };
@@ -467,9 +467,9 @@ mod tests {
 
         insta::assert_snapshot!(normalize_ast_hash(&output), @r#"
         import { z } from "zod";
-        import { OpenClawClient } from "@openclaw/sdk";
+        import { ClawClient } from "@claw/sdk";
 
-        export const OPENCLAW_AST_HASH = "<ast_hash>";
+        export const CLAW_AST_HASH = "<ast_hash>";
 
         export interface SearchResult {
             url: string;
@@ -497,12 +497,12 @@ mod tests {
 
         export const AnalyzeCompetitors = async (
             company: string,
-            options: { client: OpenClawClient; resumeSessionId?: string }
+            options: { client: ClawClient; resumeSessionId?: string }
         ): Promise<SearchResult> => {
             const result = await options.client.executeWorkflow({
                 workflowName: "AnalyzeCompetitors",
                 arguments: { company },
-                astHash: OPENCLAW_AST_HASH,
+                astHash: CLAW_AST_HASH,
                 resumeSessionId: options.resumeSessionId,
             });
 
@@ -511,12 +511,12 @@ mod tests {
 
         export const VerifyUser = async (
             email: string,
-            options: { client: OpenClawClient; resumeSessionId?: string }
+            options: { client: ClawClient; resumeSessionId?: string }
         ): Promise<VerifiedUser> => {
             const result = await options.client.executeWorkflow({
                 workflowName: "VerifyUser",
                 arguments: { email },
-                astHash: OPENCLAW_AST_HASH,
+                astHash: CLAW_AST_HASH,
                 resumeSessionId: options.resumeSessionId,
             });
 
@@ -541,7 +541,7 @@ mod tests {
         assert!(output.contains("export const AnalyzeCompetitors = async ("));
         assert!(output.contains(r#"workflowName: "AnalyzeCompetitors""#));
         assert!(output.contains("arguments: { company }"));
-        assert!(output.contains("astHash: OPENCLAW_AST_HASH"));
+        assert!(output.contains("astHash: CLAW_AST_HASH"));
         assert!(output.contains("return SearchResultSchema.parse(result);"));
     }
 

@@ -292,7 +292,7 @@ claw test [source.claw] [--config claw.json] [--filter "pattern"]
 
 ### Rust CLI Implementation
 
-Add `Test(TestArgs)` to the `Commands` enum in `openclaw.rs`:
+Add `Test(TestArgs)` to the `Commands` enum in `claw.rs`:
 
 ```rust
 #[derive(Debug, clap::Args)]

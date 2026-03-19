@@ -7,7 +7,7 @@ Welcome to the `.claw` compiler! This guide will walk you through compiling your
 Ensure you have Rust installed. Clone the repository and build the `clawc` CLI tool.
 ```bash
 git clone https://github.com/open-code/openclaw.git
-cd openclaw
+cd claw
 cargo install --path .
 ```
 
@@ -30,7 +30,7 @@ agent Greeter {
     system_prompt = "You are a friendly greeter."
 }
 
-workflow HelloOpenClaw(name: string) -> Greeting {
+workflow HelloClaw(name: string) -> Greeting {
     let result: Greeting = execute Greeter.run(
         task: "Say hello to ${name}",
         require_type: Greeting
@@ -45,7 +45,7 @@ Run the compiler pointing to your target SDK language (default: TypeScript).
 clawc build pipeline.claw --lang ts
 ```
 
-If your syntax is correct, `clawc` will silently output a new `generated/claw/` directory into your project, containing strictly-typed `Greeting` interfaces and an async `HelloOpenClaw` network call wrapper.
+If your syntax is correct, `clawc` will silently output a new `generated/claw/` directory into your project, containing strictly-typed `Greeting` interfaces and an async `HelloClaw` network call wrapper.
 
 ## 3. Writing and Running Tests
 
@@ -60,7 +60,7 @@ mock Greeter("Say hello to Alice") -> {
 
 test "Verify Greeter Workflow" {
     // This executes entirely offline using the 'mock' block above.
-    let response = HelloOpenClaw("Alice")
+    let response = HelloClaw("Alice")
     
     // Test primitives
     assert(response.message == "Hello there, Alice!")
@@ -73,7 +73,7 @@ To run your tests via the `clawc` CLI:
 clawc test pipeline.claw
 ```
 
-The CLI will parse the AST, temporarily bypass the OpenClaw Gateway Network layer, inject your JSON mock schemas against the TypeSystem Bouncer, and execute the program flow locally.
+The CLI will parse the AST, temporarily bypass the Claw Gateway Network layer, inject your JSON mock schemas against the TypeSystem Bouncer, and execute the program flow locally.
 
 ## What's Next?
 Once your local tests pass, it's time to integrate this AST into real code.

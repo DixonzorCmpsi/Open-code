@@ -353,7 +353,7 @@ mod tests {
 
         assert!(output.contains("class SearchResult(BaseModel):"));
         assert!(output.contains("async def analyze_competitors("));
-        assert!(output.contains("ast_hash=OPENCLAW_AST_HASH"));
+        assert!(output.contains("ast_hash=CLAW_AST_HASH"));
     }
 
     #[test]

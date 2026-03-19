@@ -1315,7 +1315,7 @@ mod tests {
     #[test]
     fn parses_document_root_and_matches_snapshot() {
         let source = r#"
-            import { WebScraper } from "@openclaw/tools.browser"
+            import { WebScraper } from "@claw/tools.browser"
 
             client FastOpenAI {
                 provider = "openai"

@@ -1,0 +1,84 @@
+{
+  "name": "Claw",
+  "scopeName": "source.claw",
+  "patterns": [
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#decorators"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.claw",
+          "match": "\\b(if|else|for|in|return|execute|let|assert|invoke)\\b"
+        },
+        {
+          "name": "keyword.declaration.claw",
+          "match": "\\b(agent|workflow|tool|type|client|test|mock|listener|import|from)\\b"
+        },
+        {
+          "name": "constant.language.boolean.claw",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.claw",
+          "match": "\\b(string|int|float|bool|list|map)\\b"
+        },
+        {
+          "name": "entity.name.type.claw",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.claw",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.claw",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "comments": {
+      "name": "comment.line.double-slash.claw",
+      "match": "//.*$"
+    },
+    "numbers": {
+      "name": "constant.numeric.claw",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.claw",
+      "match": "(=>|->|==|!=|<=|>=|<|>|=|\\+|\\-|\\*|\\/)"
+    },
+    "decorators": {
+      "name": "entity.name.function.decorator.claw",
+      "match": "@\\w+"
+    }
+  }
+}

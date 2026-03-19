@@ -1,7 +1,7 @@
-export class OpenClawExecutionError extends Error {
+export class ClawExecutionError extends Error {
   constructor(message, options = {}) {
     super(message);
-    this.name = "OpenClawExecutionError";
+    this.name = "ClawExecutionError";
     this.sessionId = options.sessionId;
     this.status = options.status;
     this.event = options.event ?? null;
@@ -9,7 +9,7 @@ export class OpenClawExecutionError extends Error {
   }
 }
 
-export class OpenClawClient {
+export class ClawClient {
   constructor(options = {}) {
     this.endpoint = (options.endpoint ?? "http://127.0.0.1:8080").replace(/\/$/, "");
     this.apiKey = options.api_key ?? options.apiKey ?? null;
@@ -21,7 +21,7 @@ export class OpenClawClient {
       "content-type": "application/json"
     };
     if (this.apiKey) {
-      headers["x-openclaw-key"] = this.apiKey;
+      headers["x-claw-key"] = this.apiKey;
     }
 
     const response = await fetch(`${this.endpoint}/workflows/execute`, {
@@ -37,7 +37,7 @@ export class OpenClawClient {
 
     const payload = await response.json();
     if (!response.ok || payload.status !== "success") {
-      throw new OpenClawExecutionError(
+      throw new ClawExecutionError(
         payload.message ?? `Workflow execution failed with status ${response.status}`,
         {
           sessionId: payload.session_id ?? sessionId,
@@ -69,7 +69,7 @@ export class OpenClawClient {
     const { WebSocket: WS } = await import("ws").catch(() => ({ WebSocket: globalThis.WebSocket }));
     const headers = {};
     if (this.apiKey) {
-      headers["x-openclaw-key"] = this.apiKey;
+      headers["x-claw-key"] = this.apiKey;
     }
 
     const ws = new WS(wsEndpoint, { headers });
@@ -126,7 +126,7 @@ export class OpenClawClient {
 
       if (message.type === "result" || message.type === "error") {
         if (message.type === "error") {
-          throw new OpenClawExecutionError(message.message, {
+          throw new ClawExecutionError(message.message, {
             sessionId: message.session_id ?? sessionId,
             status: "error",
             payload: message
@@ -140,4 +140,4 @@ export class OpenClawClient {
   }
 }
 
-export { OpenClawExecutionError as AgentExecutionError };
+export { ClawExecutionError as AgentExecutionError };

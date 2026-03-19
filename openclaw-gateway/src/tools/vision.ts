@@ -1,5 +1,5 @@
 /**
- * Visual Intelligence module for OpenClaw browser automation.
+ * Visual Intelligence module for Claw browser automation.
  *
  * When a CSS selector fails, agents can pass a screenshot to a multimodal LLM
  * (Claude Sonnet 4.6 / GPT-4o) to determine coordinate-based clicks.
