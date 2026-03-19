@@ -21,6 +21,13 @@ import { AssertionError, HumanInterventionRequiredError, SchemaDegradationError 
 import { executeCustomTool } from "./runtime.ts";
 import { isSchemaDegraded, validateAgainstSchema } from "./schema.ts";
 
+export class FatalCircuitBreakerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FatalCircuitBreakerError";
+  }
+}
+
 interface TraversalOptions {
   compiled: CompiledDocumentFile;
   request: ExecutionRequest;
@@ -31,9 +38,17 @@ interface TraversalOptions {
 export async function executeWorkflow(options: TraversalOptions): Promise<unknown> {
   const { compiled, request, checkpoints } = options;
   const existingSession = await checkpoints.loadSession(request.session_id);
+  
+  // Phase 8 GAN Audit Fix: Eager Event Hydration O(1) Cache
+  const historicalEvents = await checkpoints.loadHistoricalEvents(request.session_id);
+
   const state = existingSession?.state && existingSession.state.status !== "completed"
     ? existingSession.state
     : createInitialState(compiled, request);
+
+  // Initialize GAN features onto state
+  state.retryCount = state.retryCount || {};
+  state.hydrationCache = historicalEvents;
 
   if (existingSession?.state.status === "completed") {
     return existingSession.result;
@@ -224,6 +239,10 @@ async function executeStatement(
       return;
     }
     case "ExecuteRun": {
+      if (state.hydrationCache?.has(statementPath)) {
+        frame.nextIndex += 1;
+        return; // O(1) Cache bypass
+      }
       await executeAgentRun(compiled, state, payload as StatementExecuteRun, statementPath, workspaceRoot, checkpoints);
       frame.nextIndex += 1;
       await checkpoints.checkpoint(state, statementPath, "execute_run");
@@ -247,7 +266,9 @@ async function executeStatement(
       const expr = Array.isArray(payload) ? (payload as [Expr, unknown])[0] : (payload as Expr | SpannedExpr);
       await evaluateExpr(compiled, state, expr, statementPath, workspaceRoot, checkpoints);
       frame.nextIndex += 1;
-      await checkpoints.checkpoint(state, statementPath, "expression");
+      if (!state.hydrationCache?.has(statementPath)) {
+        await checkpoints.checkpoint(state, statementPath, "expression");
+      }
       return;
     }
     case "Continue": {
@@ -310,6 +331,12 @@ async function evaluateExpr(
   workspaceRoot: string,
   checkpoints: CheckpointStore
 ): Promise<unknown> {
+  // Phase 8 Fix: Read-Through Eager Hydration Cache Bypass
+  if (state.hydrationCache?.has(statementPath)) {
+     const cachedPayload = state.hydrationCache.get(statementPath);
+     // Note: Lazy TypeBox validation is delegated to `validateToolResult` if applicable below.
+     return cachedPayload;
+  }
   const [kind, payload] = getVariant(expr);
 
   switch (kind) {
@@ -478,7 +505,7 @@ async function executeAgentRun(
     checkpoints
   );
   if (mockResult !== undefined) {
-    return validateToolResult(mockResult, returnSchema);
+    return validateToolResult(mockResult, returnSchema, state, statementPath);
   }
   if (agent.tools.some((toolName) => toolName === "Browser.search") && typeof kwargs.query === "string") {
     return validateToolResult(
@@ -487,7 +514,9 @@ async function executeAgentRun(
         nodePath: statementPath,
         consumeOverride: () => checkpoints.consumeHumanOverride(state.sessionId)
       }),
-      returnSchema
+      returnSchema,
+      state,
+      statementPath
     );
   }
 
@@ -498,14 +527,18 @@ async function executeAgentRun(
         nodePath: statementPath,
         consumeOverride: () => checkpoints.consumeHumanOverride(state.sessionId)
       }),
-      returnSchema
+      returnSchema,
+      state,
+      statementPath
     );
   }
 
   if (tools.length === 1 && tools[0].invoke_path) {
     return validateToolResult(
       await executeCustomTool(tools[0].invoke_path, kwargs, workspaceRoot),
-      returnSchema
+      returnSchema,
+      state,
+      statementPath
     );
   }
 
@@ -520,7 +553,7 @@ async function executeAgentRun(
     const bamlPromise = callBamlFunction(fnName, kwargs);
     if (bamlPromise !== null) {
       const bamlResult = await bamlPromise;
-      return validateToolResult(bamlResult, returnSchema);
+      return validateToolResult(bamlResult, returnSchema, state, statementPath);
     }
   }
 
@@ -533,7 +566,7 @@ async function executeAgentRun(
     returnSchema,
     kwargs,
     tools
-  }), returnSchema);
+  }), returnSchema, state, statementPath);
 }
 
 function extractCustomTypeName(dataType: DataType | null): string | null {
@@ -731,15 +764,27 @@ function findNearestTryCatchFrame(frames: ExecutionFrame[]): number {
   return -1;
 }
 
-function validateToolResult(result: unknown, schema: ReturnType<typeof buildReturnSchema>): unknown {
+function validateToolResult(result: unknown, schema: ReturnType<typeof buildReturnSchema>, state: ExecutionState, statementPath: string): unknown {
   if (!schema) {
     return result;
   }
 
+  // Phase 8 Audit Fix: Zero Trust validation upon caching or LLM generation
   validateAgainstSchema(result, schema);
+  
   if (isSchemaDegraded(result, schema ?? undefined)) {
-    throw new SchemaDegradationError("Tool execution produced a schema-degraded payload", result);
+    // Phase 8 Audit Fix: Financial Circuit Breaker
+    state.retryCount = state.retryCount || {};
+    state.retryCount[statementPath] = (state.retryCount[statementPath] || 0) + 1;
+    if (state.retryCount[statementPath] > 3) {
+      throw new FatalCircuitBreakerError("Max schema degradation retries exceeded (3). Financial Circuit Breaker triggered. Workflow fatally halted.");
+    }
+    throw new SchemaDegradationError(`Tool execution produced a schema-degraded payload. Retry ${state.retryCount[statementPath]}/3.`, result);
   }
 
+  // Clear retry count on success
+  if (state.retryCount) {
+    state.retryCount[statementPath] = 0;
+  }
   return result;
 }

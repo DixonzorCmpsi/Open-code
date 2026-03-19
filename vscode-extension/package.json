@@ -1,0 +1,30 @@
+{
+  "name": "claw",
+  "displayName": "Claw DSL",
+  "description": "Language support and file icons for the Claw Compiler (.claw)",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "claw",
+        "aliases": [
+          "Claw",
+          "claw"
+        ],
+        "extensions": [
+          ".claw"
+        ],
+        "icon": {
+          "light": "./images/claw-icon.png",
+          "dark": "./images/claw-icon.png"
+        }
+      }
+    ]
+  }
+}

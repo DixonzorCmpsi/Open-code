@@ -277,7 +277,9 @@ export interface ExecutionState {
   scopes: Array<Record<string, unknown>>;
   frames: ExecutionFrame[];
   returnValue: unknown | null;
-  status: "running" | "completed" | "waiting_human";
+  status: "running" | "completed" | "waiting_human" | "interrupted";
+  retryCount?: Record<string, number>;
+  hydrationCache?: Map<string, unknown>;
 }
 
 export interface GatewaySuccess {

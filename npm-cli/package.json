@@ -1,0 +1,25 @@
+{
+  "name": "@claw/cli",
+  "version": "1.0.0",
+  "description": "NPM Binary Wrapper for the native deterministic Claw compiler",
+  "bin": {
+    "claw": "./bin/claw"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">= 18"
+  },
+  "author": "Claw Team",
+  "license": "MIT"
+}

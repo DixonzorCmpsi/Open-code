@@ -22,6 +22,7 @@ interface RedisLikeClient {
   get(key: string): Promise<string | null>;
   del(key: string): Promise<number>;
   rPush(key: string, value: string): Promise<number>;
+  lRange?(key: string, start: number, stop: number): Promise<string[]>;
 }
 
 interface CheckpointStoreOptions {
@@ -39,6 +40,9 @@ interface CheckpointBackend {
     payload: unknown
   ): Promise<void>;
   loadSession(sessionId: string): Promise<{ state: ExecutionState; result: unknown | null } | null>;
+  loadHistoricalEvents(sessionId: string): Promise<Map<string, unknown>>;
+  saveAstDocument(astHash: string, documentJson: string): Promise<void>;
+  loadAstDocument(astHash: string): Promise<string | null>;
   saveHumanOverride(sessionId: string, payload: unknown): Promise<void>;
   consumeHumanOverride(sessionId: string): Promise<unknown | null>;
   close(): Promise<void>;
@@ -72,6 +76,18 @@ export class CheckpointStore {
 
   async loadSession(sessionId: string): Promise<{ state: ExecutionState; result: unknown | null } | null> {
     return this.backend.loadSession(sessionId);
+  }
+
+  async loadHistoricalEvents(sessionId: string): Promise<Map<string, unknown>> {
+    return this.backend.loadHistoricalEvents(sessionId);
+  }
+
+  async saveAstDocument(astHash: string, documentJson: string): Promise<void> {
+    await this.backend.saveAstDocument(astHash, documentJson);
+  }
+
+  async loadAstDocument(astHash: string): Promise<string | null> {
+    return this.backend.loadAstDocument(astHash);
   }
 
   async saveHumanOverride(sessionId: string, payload: unknown): Promise<void> {
@@ -124,6 +140,12 @@ class SqliteCheckpointBackend implements CheckpointBackend {
         session_id TEXT PRIMARY KEY,
         payload_json TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ast_registry (
+        ast_hash TEXT PRIMARY KEY,
+        document_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
       );
     `);
   }
@@ -196,6 +218,37 @@ class SqliteCheckpointBackend implements CheckpointBackend {
       state: JSON.parse(row.state_json) as ExecutionState,
       result: row.result_json ? JSON.parse(row.result_json) : null
     };
+  }
+
+  async loadHistoricalEvents(sessionId: string): Promise<Map<string, unknown>> {
+    const rows = this.database
+      .prepare(`SELECT node_path, payload_json FROM session_events WHERE session_id = ?`)
+      .all(sessionId) as Array<{ node_path: string; payload_json: string }>;
+    
+    const eventsMap = new Map<string, unknown>();
+    for (const row of rows) {
+      eventsMap.set(row.node_path, JSON.parse(row.payload_json));
+    }
+    return eventsMap;
+  }
+
+  async saveAstDocument(astHash: string, documentJson: string): Promise<void> {
+    this.database
+      .prepare(
+        `
+          INSERT INTO ast_registry (ast_hash, document_json, created_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(ast_hash) DO NOTHING
+        `
+      )
+      .run(astHash, documentJson, new Date().toISOString());
+  }
+
+  async loadAstDocument(astHash: string): Promise<string | null> {
+    const row = this.database
+      .prepare(`SELECT document_json FROM ast_registry WHERE ast_hash = ?`)
+      .get(astHash) as { document_json: string } | undefined;
+    return row ? row.document_json : null;
   }
 
   async saveHumanOverride(sessionId: string, payload: unknown): Promise<void> {
@@ -283,6 +336,27 @@ class RedisCheckpointBackend implements CheckpointBackend {
     };
   }
 
+  async loadHistoricalEvents(sessionId: string): Promise<Map<string, unknown>> {
+    const client = await this.clientPromise;
+    const events = (client.lRange ? await client.lRange(this.eventsKey(sessionId), 0, -1) : []) as string[];
+    const eventsMap = new Map<string, unknown>();
+    for (const eventStr of events) {
+      const event = JSON.parse(eventStr) as { node_path: string; payload_json: string };
+      eventsMap.set(event.node_path, JSON.parse(event.payload_json));
+    }
+    return eventsMap;
+  }
+
+  async saveAstDocument(astHash: string, documentJson: string): Promise<void> {
+    const client = await this.clientPromise;
+    await client.set(this.astKey(astHash), documentJson);
+  }
+
+  async loadAstDocument(astHash: string): Promise<string | null> {
+    const client = await this.clientPromise;
+    return client.get(this.astKey(astHash));
+  }
+
   async saveHumanOverride(sessionId: string, payload: unknown): Promise<void> {
     const client = await this.clientPromise;
     await client.set(this.overrideKey(sessionId), JSON.stringify(payload));
@@ -315,6 +389,10 @@ class RedisCheckpointBackend implements CheckpointBackend {
 
   private overrideKey(sessionId: string): string {
     return `${this.namespace}:override:${sessionId}`;
+  }
+
+  private astKey(astHash: string): string {
+    return `${this.namespace}:ast:${astHash}`;
   }
 }
 

@@ -24,7 +24,8 @@ The `openclaw` binary is built in Rust and distributed as a standalone executabl
 **Behavior:**
 1. Detect the `.claw` entry file (prefer `example.claw`, fall back to `src/pipeline.claw`)
 2. Generate `claw.json` configuration file with sensible defaults
-3. If `--force` is not set and the file already exists, exit with an error
+3. Generate a `package.json` declaring `@claw/cli` as a devDependency and `@claw/sdk` as a dependency
+4. If `--force` is not set and the file already exists, exit with an error
 
 **Generated `claw.json` structure:**
 
@@ -40,6 +41,9 @@ The `openclaw` binary is built in Rust and distributed as a standalone executabl
     "source": "example.claw",
     "language": "ts",
     "output_dir": "generated/claw"
+  },
+  "runtime_guardrails": {
+    "max_cost_per_session": 5.00
   },
   "runtimes": {
     "sandbox_backend": "docker",
@@ -149,6 +153,7 @@ On Windows, the `.cmd` suffix is used automatically for steps 2 and 3 when prese
 | `build.source` | string | Path to `.claw` source file |
 | `build.language` | `"ts"` or `"python"` | SDK target language |
 | `build.output_dir` | string | Output directory for generated files |
+| `runtime_guardrails.max_cost_per_session` | number | Financial circuit breaker: hard caps LLM spending per workflow execution |
 | `runtimes.sandbox_backend` | `"docker"` or `"local"` | Sandbox execution mode |
 | `runtimes.python_image` | string | Docker image for Python sandboxes |
 | `runtimes.node_image` | string | Docker image for Node.js sandboxes |

@@ -240,7 +240,7 @@ async function handleWebSocketExecution(socket: import("node:net").Socket, rawPa
 
   try {
     activeExecutions += 1;
-    const compiled = await loadCompiledDocument(payload.ast_hash, workspaceRoot);
+    const compiled = await loadCompiledDocument(payload.ast_hash, workspaceRoot, streamingCheckpoints);
     const result = await executeWorkflow({
       compiled,
       request: payload,
@@ -332,7 +332,7 @@ async function handleWorkflowExecution(
         ast_hash: payload.ast_hash
       });
 
-      const compiled = await loadCompiledDocument(payload.ast_hash, workspaceRoot);
+      const compiled = await loadCompiledDocument(payload.ast_hash, workspaceRoot, checkpointStore);
       const result = await executeWorkflow({
         compiled,
         request: payload,
