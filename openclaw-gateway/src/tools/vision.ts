@@ -2,7 +2,7 @@
  * Visual Intelligence module for OpenClaw browser automation.
  *
  * When a CSS selector fails, agents can pass a screenshot to a multimodal LLM
- * (Claude Sonnet 4.5 / GPT-4o) to determine coordinate-based clicks.
+ * (Claude Sonnet 4.6 / GPT-4o) to determine coordinate-based clicks.
  */
 
 type BrowserPageLike = {
@@ -74,7 +74,7 @@ async function callAnthropicVision(
       "anthropic-version": "2025-01-01"
     },
     body: JSON.stringify({
-      model: process.env.OPENCLAW_VISION_MODEL ?? "claude-sonnet-4-5-20250514",
+      model: process.env.CLAW_VISION_MODEL ?? "claude-sonnet-4-6",
       max_tokens: 512,
       messages: [
         {
@@ -116,7 +116,7 @@ async function callOpenAIVision(
       authorization: `Bearer ${process.env.OPENAI_API_KEY}`
     },
     body: JSON.stringify({
-      model: process.env.OPENCLAW_VISION_MODEL ?? "gpt-4o",
+      model: process.env.CLAW_VISION_MODEL ?? "gpt-4o",
       max_tokens: 512,
       messages: [
         {

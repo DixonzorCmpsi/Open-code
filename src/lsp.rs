@@ -30,10 +30,11 @@ const TOKEN_KEYWORD: u32 = 0;
 
 pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
     match parser::parse(source) {
-        Ok(document) => match semantic::analyze(&document) {
-            Ok(()) => Vec::new(),
-            Err(error) => vec![compiler_error_to_diagnostic(source, &error)],
-        },
+        Ok(document) => semantic::analyze_collecting(&document)
+            .errors
+            .iter()
+            .map(|error| compiler_error_to_diagnostic(source, error))
+            .collect(),
         Err(error) => vec![compiler_error_to_diagnostic(source, &error)],
     }
 }
@@ -47,7 +48,7 @@ pub fn completion_items(source: Option<&str>) -> Vec<CompletionItem> {
         items.push(CompletionItem {
             label: (*keyword).to_owned(),
             kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("OpenClaw keyword".to_owned()),
+            detail: Some("Claw keyword".to_owned()),
             ..CompletionItem::default()
         });
     }
@@ -211,5 +212,32 @@ mod tests {
         );
 
         assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_report_multiple_semantic_errors() {
+        let diagnostics = diagnostics_for_source(
+            r#"
+            client FastOpenAI {
+                provider = "openai"
+                model = "gpt-5.1"
+            }
+
+            agent Researcher {
+                client = MissingClient
+                tools = [MissingTool]
+            }
+
+            workflow Analyze(company: string) -> string {
+                let score: int = "oops"
+            }
+        "#,
+        );
+
+        assert_eq!(diagnostics.len(), 4);
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("undefined tool")));
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("undefined client")));
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("type mismatch")));
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("missing a return")));
     }
 }

@@ -43,7 +43,7 @@ test("docker sandbox commands are locked down for python and typescript runtimes
   assert.ok(typescriptCommand.args.includes("node:22"));
   assert.ok(typescriptCommand.args.includes("--experimental-strip-types"));
   assert.ok(
-    typescriptCommand.args.some((value) => value.endsWith("/scripts/search.mjs"))
+    typescriptCommand.args.some((value) => value.replaceAll("\\", "/").endsWith("/scripts/search.mjs"))
   );
 });
 
@@ -91,14 +91,14 @@ test("retry exhaustion surfaces the final error", async () => {
 });
 
 test("prePullSandboxImages is a no-op when sandbox backend is not docker", async () => {
-  const originalBackend = process.env.OPENCLAW_SANDBOX_BACKEND;
+  const originalBackend = process.env.CLAW_SANDBOX_BACKEND;
   try {
-    delete process.env.OPENCLAW_SANDBOX_BACKEND;
+    delete process.env.CLAW_SANDBOX_BACKEND;
     // Should resolve immediately without spawning anything
     await prePullSandboxImages();
   } finally {
     if (originalBackend !== undefined) {
-      process.env.OPENCLAW_SANDBOX_BACKEND = originalBackend;
+      process.env.CLAW_SANDBOX_BACKEND = originalBackend;
     }
   }
 });

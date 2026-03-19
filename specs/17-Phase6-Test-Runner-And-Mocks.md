@@ -1,6 +1,6 @@
 # Phase 6C: Test Runner & Mock Execution
 
-This spec covers the `openclaw test` command and the gateway's ability to execute `.claw` test and mock blocks. Developers write tests alongside workflows and run them without hitting real LLM APIs.
+This spec covers the `claw test` command and the gateway's ability to execute `.claw` test and mock blocks. Developers write tests alongside workflows and run them without hitting real LLM APIs.
 
 **Prerequisite:** Read `specs/01-DSL-Core-Specification.md` (test/mock syntax), `specs/03-Grammar.md`, `specs/04-AST-Structures.md`, `specs/14-CLI-Tooling.md`.
 
@@ -14,9 +14,9 @@ This spec covers the `openclaw test` command and the gateway's ability to execut
 - Replace `MockDecl` AST (BREAKING CHANGE) — old `mock Agent(input) -> output` becomes `mock Agent { key: value }`
 - Implement mock registry with name-only matching (last mock for same agent wins)
 - Mock interception is HIGHEST priority in `executeAgentRun()` — before tools, BAML, and raw HTTP
-- Implement `openclaw test` CLI command with `--filter` substring matching
+- Implement `claw test` CLI command with `--filter` substring matching
 - Implement `test-runner.ts` as gateway subprocess reading JSON manifest from stdin, outputting JSON lines to stdout
-- Enforce 30s per-test timeout (configurable via `OPENCLAW_TEST_TIMEOUT_MS`)
+- Enforce 30s per-test timeout (configurable via `CLAW_TEST_TIMEOUT_MS`)
 - Tests pass when ALL assertions succeed and no unhandled exception propagates; tests fail on first false assertion or any thrown error
 
 ### Non-Goals (MUST NOT do)
@@ -25,7 +25,7 @@ This spec covers the `openclaw test` command and the gateway's ability to execut
 - Do NOT implement test suites/grouping (`suite "name" { ... }`) — Phase 8
 - Do NOT implement `beforeEach`/`afterEach` setup/teardown hooks — Phase 8
 - Do NOT implement parallel test execution — tests run sequentially in definition order
-- Do NOT implement watch mode for tests (`openclaw test --watch`) — Phase 7
+- Do NOT implement watch mode for tests (`claw test --watch`) — Phase 7
 - Do NOT change the `test` block syntax — it remains `test "name" { ... }` with no arguments
 - Do NOT allow `assert` in workflows or listeners — test blocks only
 - Do NOT implement mock verification (asserting a mock was called N times) — Phase 8
@@ -91,7 +91,7 @@ test "Researcher returns valid SearchResult" {
 ### How Tests Run
 
 1. Each `test` block is compiled into the AST as a `TestDecl`.
-2. During `openclaw test`, the gateway traversal engine executes each `TestDecl.body` like a workflow body.
+2. During `claw test`, the gateway traversal engine executes each `TestDecl.body` like a workflow body.
 3. **Pass condition:** All `assert` statements in the body evaluate to `true` AND no unhandled exception is thrown.
 4. **Fail condition:** Any `assert` evaluates to `false` OR an exception propagates out of the test body.
 
@@ -282,12 +282,12 @@ interface TraversalOptions {
 
 ---
 
-## 4. `openclaw test` CLI Command
+## 4. `claw test` CLI Command
 
 ### Usage
 
 ```
-openclaw test [source.claw] [--config openclaw.json] [--filter "pattern"]
+claw test [source.claw] [--config claw.json] [--filter "pattern"]
 ```
 
 ### Rust CLI Implementation
@@ -300,7 +300,7 @@ struct TestArgs {
     source: Option<PathBuf>,
     #[arg(long)]
     filter: Option<String>,
-    #[arg(long, default_value = "openclaw.json")]
+    #[arg(long, default_value = "claw.json")]
     config: PathBuf,
 }
 ```
@@ -368,8 +368,8 @@ Results: 2 passed, 1 failed (35ms total)
 
 ### TDD Tests (CLI)
 
-1. **`test_parses_test_command`** — `Cli::parse_from(["openclaw", "test", "example.claw"])` → `Commands::Test(...)`.
-2. **`test_parses_test_filter`** — `Cli::parse_from(["openclaw", "test", "--filter", "Researcher"])` → `filter: Some("Researcher")`.
+1. **`test_parses_test_command`** — `Cli::parse_from(["claw", "test", "example.claw"])` → `Commands::Test(...)`.
+2. **`test_parses_test_filter`** — `Cli::parse_from(["claw", "test", "--filter", "Researcher"])` → `filter: Some("Researcher")`.
 3. **`test_no_tests_match_filter_exits_zero`** — Filter "nonexistent" → exit 0 with "No tests matched filter" message.
 
 ### Exit Codes
@@ -388,10 +388,10 @@ Each test execution has a default timeout of **30 seconds**. If a test body does
 2. Reports the test as `FAIL` with message `"Test timed out after 30000ms"`
 3. Proceeds to the next test
 
-Configurable via `OPENCLAW_TEST_TIMEOUT_MS` environment variable.
+Configurable via `CLAW_TEST_TIMEOUT_MS` environment variable.
 
 ```typescript
-const TEST_TIMEOUT_MS = Number(process.env.OPENCLAW_TEST_TIMEOUT_MS ?? 30_000);
+const TEST_TIMEOUT_MS = Number(process.env.CLAW_TEST_TIMEOUT_MS ?? 30_000);
 
 async function executeTestWithTimeout(testBody: Block, ...): Promise<TestResult> {
   const controller = new AbortController();

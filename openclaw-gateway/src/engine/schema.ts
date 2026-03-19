@@ -113,7 +113,7 @@ export function validateAgainstSchema(value: unknown, schema: TypeBoxSchema, pat
  *
  * Per specs/07-OpenClaw-OS.md Section 2.4.
  */
-export function isSchemaDegraded(value: unknown): boolean {
+export function isSchemaDegraded(value: unknown, schema?: TypeBoxSchema): boolean {
   if (value == null) {
     return true;
   }
@@ -127,12 +127,16 @@ export function isSchemaDegraded(value: unknown): boolean {
     return value === false;
   }
   if (Array.isArray(value)) {
-    return value.length === 0 || value.every((item) => isSchemaDegraded(item));
+    return value.length === 0 || value.every((item) => isSchemaDegraded(item, schema?.items));
   }
   if (typeof value === "object") {
-    const values = Object.values(value as Record<string, unknown>);
+    const obj = value as Record<string, unknown>;
+    const entries = Object.entries(obj);
     // Only degraded if ALL leaves are zero-values simultaneously
-    return values.length === 0 || values.every((item) => isSchemaDegraded(item));
+    return (
+      entries.length === 0 ||
+      entries.every(([key, val]) => isSchemaDegraded(val, schema?.properties?.[key]))
+    );
   }
   return false;
 }

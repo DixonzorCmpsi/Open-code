@@ -3,6 +3,12 @@ use std::collections::HashMap;
 use crate::ast::{Document, ImportDecl, Span};
 use crate::errors::{CompilerError, CompilerResult};
 
+const BUILTIN_ERROR_TYPES: [&str; 3] = [
+    "AgentExecutionError",
+    "SchemaDegradationError",
+    "ToolExecutionError",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SymbolKind {
     Type,
@@ -27,6 +33,7 @@ impl SymbolTable {
     pub(crate) fn build(document: &Document) -> CompilerResult<Self> {
         let mut table = Self::default();
 
+        table.register_builtin_error_types()?;
         table.register_imports(&document.imports)?;
         table.register_types(document)?;
         table.register_clients(document)?;
@@ -57,6 +64,14 @@ impl SymbolTable {
         self.symbols
             .get(name)
             .is_some_and(|symbol| symbol.kind == kind)
+    }
+
+    fn register_builtin_error_types(&mut self) -> CompilerResult<()> {
+        for name in BUILTIN_ERROR_TYPES {
+            self.register(name, SymbolKind::Type, &(0..0))?;
+        }
+
+        Ok(())
     }
 
     fn register_imports(&mut self, imports: &[ImportDecl]) -> CompilerResult<()> {

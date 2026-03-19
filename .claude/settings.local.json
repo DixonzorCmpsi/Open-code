@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --experimental-strip-types --test src/*.test.ts src/engine/schema.test.ts)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo run:*)",
+      "Bash(node --experimental-strip-types --test openclaw-gateway/src/*.test.ts openclaw-gateway/src/engine/*.test.ts openclaw-gateway/src/tools/*.test.ts)",
+      "Bash(node --experimental-strip-types --test packages/openclaw-sdk/index.test.mjs)",
+      "Bash(npm install:*)",
+      "Bash(ls -la /c/Users/dixon/Desktop/Open-code/*.sh)",
+      "Bash(xargs grep:*)",
+      "Bash(node --experimental-strip-types --test openclaw-gateway/src/*.test.ts openclaw-gateway/src/engine/*.test.ts)",
+      "Bash(find /c/Users/dixon/Desktop/Open-code -type f \\\\\\(-name *.rs -o -name *.toml -o -name *.md -o -name *.json -o -name *.js -o -name *.ts \\\\\\) ! -path */node_modules/* ! -path */target/*)",
+      "Bash(grep -r \"OPENCLAW_\\\\|\\\\.openclaw/\\\\|openclaw\\\\.json\\\\|openclaw-gateway\\\\|openclaw-sdk\" /c/Users/dixon/Desktop/Open-code --include=*.rs --include=*.ts --include=*.toml --include=*.md --include=*.json --include=*.py)",
+      "Bash(grep -rn .openclaw/ /c/Users/dixon/Desktop/Open-code --include=*.rs --include=*.ts)",
+      "Bash(find /c/Users/dixon/Desktop/Open-code -type f -name .env*)",
+      "Bash(node --experimental-strip-types --test src/*.test.ts src/engine/*.test.ts src/tools/*.test.ts)"
+    ]
+  }
+}

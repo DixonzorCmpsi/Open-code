@@ -12,7 +12,7 @@ This spec covers remaining gateway features from specs 07, 11, 12, 13. Focus: gr
 - Implement graceful SIGTERM/SIGINT shutdown with 30s drain and active session tracking (try/finally around every workflow execution)
 - Fix the `Date.now()` security violation in nested workflow session IDs → `crypto.randomUUID()`
 - Implement `waitForStability()` — Strategy A (networkidle + 1.5s delay) is the DEFAULT for all screenshots; Strategy B (raw pixel diff via `sharp`) is ONLY used when `locateByVision()` is called
-- Create `ws-production.ts` using the `ws` library alongside the existing hand-rolled `ws.ts` — selectable via `OPENCLAW_WS_PROVIDER` env var (default: `"builtin"`)
+- Create `ws-production.ts` using the `ws` library alongside the existing hand-rolled `ws.ts` — selectable via `CLAW_WS_PROVIDER` env var (default: `"builtin"`)
 - Implement token bucket rate limiter with periodic cleanup (60s interval, 5min TTL, 10k max buckets) keyed by `request.socket.remoteAddress`
 - Validate `Content-Type: application/json` on POST (split on `;`, trim, lowercase compare)
 - Implement structured ndjson logger to replace all `console.log`/`console.error` calls
@@ -264,7 +264,7 @@ export function createProductionWebSocketHandler(
 ### Provider Selection
 
 ```typescript
-const WS_PROVIDER = process.env.OPENCLAW_WS_PROVIDER ?? "builtin";
+const WS_PROVIDER = process.env.CLAW_WS_PROVIDER ?? "builtin";
 
 if (WS_PROVIDER === "production") {
   const { createProductionWebSocketHandler } = await import("./ws-production.ts");
@@ -346,7 +346,7 @@ function createRateLimiter(maxPerSecond = DEFAULT_MAX_PER_SECOND): RateLimiter {
 
 ```typescript
 const rateLimiter = createRateLimiter(
-  Number(process.env.OPENCLAW_RATE_LIMIT ?? 100)
+  Number(process.env.CLAW_RATE_LIMIT ?? 100)
 );
 
 // In HTTP handler:
@@ -401,8 +401,8 @@ if (request.method === "POST") {
 type LogLevel = "error" | "warn" | "info" | "debug";
 
 const PRIORITY: Record<LogLevel, number> = { error: 0, warn: 1, info: 2, debug: 3 };
-const configuredLevel: LogLevel = (process.env.OPENCLAW_LOG_LEVEL as LogLevel) ?? "info";
-const jsonFormat = process.env.OPENCLAW_LOG_FORMAT === "json";
+const configuredLevel: LogLevel = (process.env.CLAW_LOG_LEVEL as LogLevel) ?? "info";
+const jsonFormat = process.env.CLAW_LOG_FORMAT === "json";
 
 export function log(level: LogLevel, event: string, data?: Record<string, unknown>): void {
   if (PRIORITY[level] > PRIORITY[configuredLevel]) return;
@@ -411,7 +411,7 @@ export function log(level: LogLevel, event: string, data?: Record<string, unknow
     const entry = { timestamp: new Date().toISOString(), level, event, ...data };
     process.stderr.write(JSON.stringify(entry) + "\n");
   } else {
-    const prefix = `[openclaw-gateway]`;
+    const prefix = `[claw-gateway]`;
     const message = data ? `${event} ${JSON.stringify(data)}` : event;
     if (level === "error") {
       console.error(`${prefix} ERROR: ${message}`);
@@ -440,5 +440,5 @@ export function log(level: LogLevel, event: string, data?: Record<string, unknow
 
 ### TDD Tests
 
-1. **`test_logger_json_format`** — Set `OPENCLAW_LOG_FORMAT=json`, call `log("info", "test", { x: 1 })`, capture stderr, assert valid JSON with correct fields.
-2. **`test_logger_respects_log_level`** — Set `OPENCLAW_LOG_LEVEL=warn`, call `log("debug", ...)`, assert nothing written.
+1. **`test_logger_json_format`** — Set `CLAW_LOG_FORMAT=json`, call `log("info", "test", { x: 1 })`, capture stderr, assert valid JSON with correct fields.
+2. **`test_logger_respects_log_level`** — Set `CLAW_LOG_LEVEL=warn`, call `log("debug", ...)`, assert nothing written.

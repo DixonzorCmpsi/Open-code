@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -13,10 +14,13 @@ import type { CompiledDocumentFile } from "../types.ts";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 test("end-to-end: compile → load document → execute workflow → validate result", async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "openclaw-e2e-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "claw-e2e-"));
+  let checkpoints: CheckpointStore | null = null;
 
   try {
-    // Load the real compiled document produced by `cargo run --bin openclaw -- build`
+    ensureCompiledDocument();
+
+    // Load the real compiled document produced by `cargo run --bin claw -- build`
     const documentPath = join(repoRoot, "generated", "claw", "document.json");
     const compiled: CompiledDocumentFile = JSON.parse(
       readFileSync(documentPath, "utf-8")
@@ -29,7 +33,7 @@ test("end-to-end: compile → load document → execute workflow → validate re
     assert.equal(workflow.name, "AnalyzeCompetitors");
 
     // Execute via the gateway engine (no LLM keys → mock bridge)
-    const checkpoints = new CheckpointStore(join(tempDir, "e2e.sqlite"));
+    checkpoints = new CheckpointStore(join(tempDir, "e2e.sqlite"));
     const result = await executeWorkflow({
       compiled,
       request: {
@@ -70,22 +74,26 @@ test("end-to-end: compile → load document → execute workflow → validate re
     });
     assert.deepEqual(replayed, result, "replaying a completed session returns the cached result");
 
-    await checkpoints.close();
   } finally {
+    await checkpoints?.close();
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
 test("end-to-end: gateway rejects invalid workflow names gracefully", async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "openclaw-e2e-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "claw-e2e-"));
+  let checkpoints: CheckpointStore | null = null;
 
   try {
+    ensureCompiledDocument();
+
     const documentPath = join(repoRoot, "generated", "claw", "document.json");
     const compiled: CompiledDocumentFile = JSON.parse(
       readFileSync(documentPath, "utf-8")
     );
 
-    const checkpoints = new CheckpointStore(join(tempDir, "e2e.sqlite"));
+    checkpoints = new CheckpointStore(join(tempDir, "e2e.sqlite"));
     await assert.rejects(
       executeWorkflow({
         compiled,
@@ -104,8 +112,31 @@ test("end-to-end: gateway rejects invalid workflow names gracefully", async () =
       }
     );
 
-    await checkpoints.close();
   } finally {
+    await checkpoints?.close();
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+function ensureCompiledDocument(): void {
+  const documentPath = join(repoRoot, "generated", "claw", "document.json");
+
+  try {
+    readFileSync(documentPath, "utf-8");
+    return;
+  } catch {
+    // Build the generated gateway document on demand for clean checkouts.
+  }
+
+  const build = spawnSync(
+    "cargo",
+    ["run", "--quiet", "--bin", "claw", "--", "build", "example.claw"],
+    {
+      cwd: repoRoot,
+      stdio: "inherit"
+    }
+  );
+
+  assert.equal(build.status, 0, "expected cargo to build generated/claw/document.json");
+}

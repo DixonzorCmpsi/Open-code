@@ -15,7 +15,8 @@ type HeaderSource = Headers | IncomingHttpHeaders | Record<string, HeaderValue>;
 export function gatewayApiKeyFromEnv(
   environment: Record<string, string | undefined> = process.env
 ): string | null {
-  return environment.OPENCLAW_GATEWAY_API_KEY ?? environment.GATEWAY_AUTH_KEY ?? null;
+  const configuredEnvName = environment.CLAW_GATEWAY_API_KEY_ENV ?? "CLAW_GATEWAY_API_KEY";
+  return environment[configuredEnvName] ?? environment.GATEWAY_AUTH_KEY ?? null;
 }
 
 export function authorizeGatewayRequest(
@@ -32,7 +33,7 @@ export function authorizeGatewayRequest(
       statusCode: 401,
       payload: {
         status: "unauthorized",
-        message: "Missing OpenClaw API key"
+        message: "Missing Claw API key"
       }
     };
   }
@@ -42,7 +43,7 @@ export function authorizeGatewayRequest(
       statusCode: 403,
       payload: {
         status: "forbidden",
-        message: "Invalid OpenClaw API key"
+        message: "Invalid Claw API key"
       }
     };
   }
@@ -51,7 +52,7 @@ export function authorizeGatewayRequest(
 }
 
 function extractApiKey(headers: HeaderSource): string | null {
-  const explicitKey = readHeader(headers, "x-openclaw-key");
+  const explicitKey = readHeader(headers, "x-claw-key");
   if (explicitKey) {
     return explicitKey;
   }

@@ -90,8 +90,8 @@ A third-party adversarial audit reviewed all 18 specs + AGENT.md and found 18 is
 | C6 | Nested session IDs use timestamps in Spec 01 | Correct | Spec 01 updated to `crypto.randomUUID()` |
 | H1 | env() has no resolution spec | Correct | Spec 07 §5 added — compile-time marker, runtime `process.env` lookup |
 | H2 | openclaw test missing from Spec 14 | Correct | Spec 14 §1 updated with test command |
-| H3 | for loop iterator is identifier-only | Correct | Spec 15 Non-Goals — expression iterators are Phase 7 |
-| H4 | No else if chaining | Correct | Spec 15 Non-Goals — else if is Phase 7 |
+| H3 | for loop iterator is identifier-only | Correct | Resolved in Phase 6 parser/AST; Spec 15 now documents that item-type inference beyond simple identifiers remains a non-goal |
+| H4 | No else if chaining | Correct | Resolved in Phase 6 — else-if is implemented via ElseBranch::ElseIf in Spec 15 Goals |
 | H5 | resolve_agents silently ignores missing parent | Correct | Spec 18 updated — uses SAFETY-commented expect after Pass 2 |
 | H7 | Schema degradation needs TypeBox schema | Correct | Spec 07 updated — `isSchemaDegraded(value, schema)` signature |
 | M3 | fullPage true vs false conflict | Correct | Spec 16 commented — false for stability, true for audit screenshots |
@@ -100,3 +100,5 @@ A third-party adversarial audit reviewed all 18 specs + AGENT.md and found 18 is
 
 ### Audit Conclusion
 The core abstract syntax and type constraints survived all three GAN audits. The initial audit (Attacks 1-3) exposed OS sandbox and CI/CD pipeline issues. The post-implementation audit (Findings 1-23) exposed security vulnerabilities. The Phase 6 cross-spec audit (14 confirmed findings) exposed spec drift, missing semantics, and boundary gaps. All findings have been resolved via spec updates.
+
+

@@ -42,7 +42,7 @@ export interface TypeField {
 
 export interface Constraint {
   name: string;
-  value: Expr;
+  value: Expr | SpannedExpr;
   span: Span;
 }
 
@@ -52,8 +52,8 @@ export interface ClientDecl {
   model: string;
   retries: number | null;
   timeout_ms: number | null;
-  endpoint: Expr | null;
-  api_key: Expr | null;
+  endpoint: SpannedExpr | null;
+  api_key: SpannedExpr | null;
   span: Span;
 }
 
@@ -114,8 +114,12 @@ export interface TestDecl {
 
 export interface MockDecl {
   target_agent: string;
-  mock_input: Expr;
-  mock_output: Expr;
+  output: Array<[string, SpannedExpr]>;
+  span: Span;
+}
+
+export interface SpannedExpr {
+  expr: Expr;
   span: Span;
 }
 
@@ -124,47 +128,73 @@ export interface Block {
   span: Span;
 }
 
+export type ElseBranch =
+  | { Else: Block }
+  | { ElseIf: Statement };
+
 export type Statement =
   | {
       LetDecl: {
         name: string;
         explicit_type: DataType | null;
-        value: Expr;
+        value: Expr | SpannedExpr;
         span: Span;
       };
     }
   | {
       ForLoop: {
         item_name: string;
-        iterator_name: string;
+        iterator: Expr | SpannedExpr;
         body: Block;
         span: Span;
       };
     }
   | {
       IfCond: {
-        condition: Expr;
+        condition: Expr | SpannedExpr;
         if_body: Block;
-        else_body: Block | null;
+        else_body: ElseBranch | null;
         span: Span;
       };
     }
   | {
       ExecuteRun: {
         agent_name: string;
-        kwargs: Array<[string, Expr]>;
+        kwargs: Array<[string, Expr | SpannedExpr]>;
         require_type: DataType | null;
         span: Span;
       };
     }
   | {
       Return: {
-        value: Expr;
+        value: Expr | SpannedExpr;
         span: Span;
       };
     }
   | {
-      Expression: [Expr, Span];
+      TryCatch: {
+        try_body: Block;
+        catch_name: string;
+        catch_type: DataType;
+        catch_body: Block;
+        span: Span;
+      };
+    }
+  | {
+      Assert: {
+        condition: Expr | SpannedExpr;
+        message: string | null;
+        span: Span;
+      };
+    }
+  | {
+      Continue: Span;
+    }
+  | {
+      Break: Span;
+    }
+  | {
+      Expression: SpannedExpr | [Expr, Span];
     };
 
 export type Expr =
@@ -173,25 +203,32 @@ export type Expr =
   | { FloatLiteral: number }
   | { BoolLiteral: boolean }
   | { Identifier: string }
-  | { ArrayLiteral: Expr[] }
-  | { Call: [string, Expr[]] }
-  | { MethodCall: [Expr, string, Expr[]] }
+  | { ArrayLiteral: Array<Expr | SpannedExpr> }
+  | { Call: [string, Array<Expr | SpannedExpr>] }
+  | { MemberAccess: [Expr | SpannedExpr, string] }
+  | { MethodCall: [Expr | SpannedExpr, string, Array<Expr | SpannedExpr>] }
   | {
       ExecuteRun: {
         agent_name: string;
-        kwargs: Array<[string, Expr]>;
+        kwargs: Array<[string, Expr | SpannedExpr]>;
         require_type: DataType | null;
       };
     }
   | {
       BinaryOp: {
-        left: Expr;
+        left: Expr | SpannedExpr;
         op: BinaryOp;
-        right: Expr;
+        right: Expr | SpannedExpr;
       };
     };
 
-export type BinaryOp = "Equal";
+export type BinaryOp =
+  | "Equal"
+  | "NotEqual"
+  | "LessThan"
+  | "GreaterThan"
+  | "LessEq"
+  | "GreaterEq";
 
 export type DataType =
   | { String: Span }
@@ -224,7 +261,14 @@ export interface LoopFrame {
   bodyPath: string;
 }
 
-export type ExecutionFrame = BlockFrame | LoopFrame;
+export interface TryCatchFrame {
+  kind: "try_catch";
+  statementPath: string;
+  catchName: string;
+  catchBodyPath: string;
+}
+
+export type ExecutionFrame = BlockFrame | LoopFrame | TryCatchFrame;
 
 export interface ExecutionState {
   sessionId: string;

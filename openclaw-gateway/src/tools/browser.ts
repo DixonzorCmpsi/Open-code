@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -136,8 +136,7 @@ async function ensureNoCaptcha(
     return;
   }
 
-  const screenshotDir = await mkdtemp(join(tmpdir(), "openclaw-captcha-"));
-  const screenshotPath = join(screenshotDir, `${sessionId}.png`);
+  const screenshotPath = await resolveCaptchaScreenshotPath(sessionId);
   await page.screenshot({ path: screenshotPath, fullPage: true });
 
   const event: HumanInterventionEvent = {
@@ -147,7 +146,7 @@ async function ensureNoCaptcha(
     metadata: {
       ...metadata,
       url: page.url(),
-      screenshot_path: screenshotPath
+      screenshot_url: `/sessions/${encodeURIComponent(sessionId)}/screenshot`
     }
   };
   throw new HumanInterventionRequiredError(event);
@@ -198,7 +197,7 @@ async function saveActionScreenshot(
   action: string
 ): Promise<ScreenshotRecord | null> {
   try {
-    const screenshotDir = await mkdtemp(join(tmpdir(), "openclaw-screenshot-"));
+    const screenshotDir = await mkdtemp(join(tmpdir(), "claw-screenshot-"));
     const screenshotPath = join(screenshotDir, `${sessionId}-${action}-${Date.now()}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
     return {
@@ -210,6 +209,15 @@ async function saveActionScreenshot(
   } catch {
     return null;
   }
+}
+
+async function resolveCaptchaScreenshotPath(sessionId: string): Promise<string> {
+  const screenshotRoot =
+    process.env.CLAW_SCREENSHOT_DIR ??
+    join(process.env.CLAW_STATE_DIR ?? tmpdir(), "screenshots");
+  const sessionDir = join(screenshotRoot, sessionId);
+  await mkdir(sessionDir, { recursive: true });
+  return join(sessionDir, "captcha.png");
 }
 
 async function consumeOverride(context: BrowserContext): Promise<Record<string, unknown> | null> {

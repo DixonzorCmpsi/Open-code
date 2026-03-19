@@ -38,7 +38,7 @@ class InMemoryRedisClient {
 }
 
 test("sqlite checkpoint backend roundtrips sessions and human overrides", async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "openclaw-checkpoints-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "claw-checkpoints-"));
   try {
     const store = new CheckpointStore({
       databasePath: join(tempDir, "engine.sqlite")
@@ -63,7 +63,7 @@ test("redis checkpoint backend roundtrips sessions and human overrides", async (
   const store = new CheckpointStore({
     databasePath: join(tmpdir(), "unused.sqlite"),
     redisClient: new InMemoryRedisClient(),
-    redisNamespace: "openclaw:test"
+    redisNamespace: "claw:test"
   });
   const state = createState("redis_session");
 
@@ -85,13 +85,13 @@ test("cross-instance redis handoff: instance B resumes session checkpointed by i
   const instanceA = new CheckpointStore({
     databasePath: join(tmpdir(), "unused-a.sqlite"),
     redisClient: sharedRedis,
-    redisNamespace: "openclaw:cluster"
+    redisNamespace: "claw:cluster"
   });
 
   const instanceB = new CheckpointStore({
     databasePath: join(tmpdir(), "unused-b.sqlite"),
     redisClient: sharedRedis,
-    redisNamespace: "openclaw:cluster"
+    redisNamespace: "claw:cluster"
   });
 
   // Instance A starts the workflow and checkpoints mid-execution
@@ -143,13 +143,13 @@ test("cross-instance redis human override: instance A saves override, instance B
   const instanceA = new CheckpointStore({
     databasePath: join(tmpdir(), "unused-a2.sqlite"),
     redisClient: sharedRedis,
-    redisNamespace: "openclaw:override-test"
+    redisNamespace: "claw:override-test"
   });
 
   const instanceB = new CheckpointStore({
     databasePath: join(tmpdir(), "unused-b2.sqlite"),
     redisClient: sharedRedis,
-    redisNamespace: "openclaw:override-test"
+    redisNamespace: "claw:override-test"
   });
 
   // Instance A saves a human override

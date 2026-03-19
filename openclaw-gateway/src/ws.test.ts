@@ -59,7 +59,7 @@ test("validateHandshakeHeaders enforces api key when configured", () => {
       connection: "Upgrade",
       "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
       "sec-websocket-version": "13",
-      "x-openclaw-key": "prod_secret"
+      "x-claw-key": "prod_secret"
     },
     "prod_secret"
   );

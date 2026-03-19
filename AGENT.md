@@ -60,7 +60,7 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
     - `parser.rs`: `winnow` combinators. (Read: `specs/03-Grammar.md`)
     - `semantic/`: The 3-pass type engine. (Read: `specs/05-Type-System.md`)
     - `codegen/`: SDK emission via `minijinja`. (Read: `specs/06-CodeGen-SDK.md`)
-    - `config.rs`: openclaw.json configuration. (Read: `specs/14-CLI-Tooling.md`)
+    - `config.rs`: claw.json configuration. (Read: `specs/14-CLI-Tooling.md`)
     - `lsp.rs`, `bin/claw-lsp.rs`: Language server. (Read: `specs/14-CLI-Tooling.md` Section 6)
     - `bin/openclaw.rs`: CLI commands (init, build, dev). (Read: `specs/14-CLI-Tooling.md`)
 - **`openclaw-gateway/` (TypeScript)**: The execution "OS". (Read: `specs/07-OpenClaw-OS.md`)
@@ -167,6 +167,137 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
 - **Conciseness**: Keep documentation, PR logs, and comments extremely concise.
 - **Document the "Why"**: Comments MUST explain *why* a choice was made (e.g., "Using timingSafeEqual because === is vulnerable to timing attacks"), not what the code does.
 - **Update Specs First**: If an implementation detail deviates from `specs/`, you MUST update the spec file BEFORE changing the code.
+
+---
+
+## 7. Spec Change Protocol — The Ripple-Effect Rule
+
+**Any edit to a file in `specs/` is a structural change to the entire system.** Specs are not documentation — they are the load-bearing walls of the compiler, gateway, SDK, and toolchain. Changing a spec without tracing its downstream effects is like adding wings to a car: the wings might look right on paper, but you haven't asked where they mount, how they affect aerodynamics at 60mph, whether the chassis can handle the load, or what the dashboard software needs to expose to control them. The car still has to *drive*.
+
+**Before touching any spec file, you MUST complete a full Ripple-Effect Analysis.**
+
+---
+
+### 7.1 The Ripple-Effect Analysis (Required Before Every Spec Edit)
+
+A spec change is only safe to apply after you have answered all four layers of impact:
+
+#### Layer 1 — The Change Itself
+
+Precisely define what is being changed. Be specific about what is being *added*, *removed*, or *mutated*. Vague descriptions like "clarify the grammar section" are not acceptable.
+
+- What is the exact old behavior/rule?
+- What is the exact new behavior/rule?
+- Why is this change necessary? (Link to audit finding, bug, or design decision.)
+
+#### Layer 2 — Internal Spec Dependencies
+
+The 18 specs in `specs/` form an interdependent graph. Before editing, you MUST identify every other spec that **references, depends on, or extends** the section you are changing.
+
+Ask: *"If I change this rule, which other spec sections become false, incomplete, or contradictory?"*
+
+Use this dependency map as your starting checklist:
+
+| If you change... | Check these specs for contradictions |
+|------------------|--------------------------------------|
+| Grammar (`03`) | AST (`04`), Type System (`05`), CLI (`14`), Phase 6 (`15`) |
+| AST structures (`04`) | Grammar (`03`), Type System (`05`), CodeGen (`06`), Phase 6 (`15`) |
+| Type system rules (`05`) | Grammar (`03`), AST (`04`), CodeGen (`06`), Phase 6 (`15`) |
+| CodeGen output format (`06`) | OS/Gateway (`07`), BAML (`18`), CLI (`14`) |
+| Gateway execution contract (`07`) | WebSocket (`11`), Security (`12`), Visual (`13`), Phase 6 Gateway (`16`) |
+| Security rules (`12`) | Gateway (`07`), WebSocket (`11`), CLI (`14`) |
+| Any Phase 6 spec (`15`–`17`) | Core specs (`03`–`06`), GAN Audit (`10`) |
+| GAN Audit findings (`10`) | Every spec the finding references — check it is still accurate |
+
+If the change introduces a new concept (a new keyword, a new node type, a new error variant), trace it through **every spec that touches that concept** — not just the one you are editing.
+
+#### Layer 3 — Code & Test Dependencies
+
+Specs drive implementation. After identifying affected specs, identify the code that implements them:
+
+- Which Rust modules (`src/`) implement the changed spec section?
+- Which TypeScript modules (`openclaw-gateway/`) implement it?
+- Which tests currently pass *because* of the rule you are changing? Would they need to be updated?
+- Does the change require new error variants in `errors.rs`? New AST nodes in `ast.rs`? New semantic passes?
+- Does the change alter the CLI's behavior, the LSP's diagnostics, or the generated SDK's shape?
+
+Write this out explicitly. Do not proceed if you cannot answer it.
+
+#### Layer 4 — Coherence Check
+
+Read the entire changed spec from top to bottom after applying your edit. Then ask:
+
+- Does the spec still read as a coherent, self-consistent document?
+- Are there any sentences that are now contradicted by your edit?
+- Does the spec still correctly describe the system as it will exist after all downstream code changes are made?
+- Does the spec's Non-Goals section need to be updated to reflect what the change explicitly does NOT cover?
+
+---
+
+### 7.2 The Spec Change Checklist
+
+You MUST complete this checklist and include it in your report before any spec edit is accepted:
+
+```
+## Spec Change Report: [Short description]
+
+### Change
+- File: specs/XX-Name.md
+- Section: §N.M
+- Old rule: [exact quote or description]
+- New rule: [exact new text]
+- Reason: [audit ID, bug, design decision]
+
+### Layer 2 — Affected Specs
+- [ ] specs/03-Grammar.md — [affected / not affected, and why]
+- [ ] specs/04-AST-Structures.md — [affected / not affected, and why]
+- [ ] specs/05-Type-System.md — [affected / not affected, and why]
+- [ ] specs/06-CodeGen-SDK.md — [affected / not affected, and why]
+- [ ] specs/07-OpenClaw-OS.md — [affected / not affected, and why]
+- [ ] specs/10-GAN-Final-Audit.md — [affected / not affected, and why]
+- [ ] specs/15-Phase6-Compiler-Completeness.md — [affected / not affected, and why]
+- [Any other spec from the dependency map above]
+
+### Layer 3 — Affected Code
+- Rust: [list src/ files that must change]
+- TypeScript: [list openclaw-gateway/ files that must change]
+- Tests: [list tests that need update or new tests needed]
+- New error variants: [yes/no — name them]
+- New AST nodes: [yes/no — name them]
+
+### Layer 4 — Coherence
+- [ ] Re-read the entire edited spec top-to-bottom after the edit
+- [ ] No sentences in the spec are now self-contradictory
+- [ ] Non-Goals updated if needed
+- [ ] Confirmed the spec still describes the system correctly end-to-end
+
+### Verification
+[Per-item VERIFIED / NOT DONE table per §1.1 above]
+```
+
+---
+
+### 7.3 The Cascade Rule
+
+**If a spec change requires changes to other specs, those other specs MUST be updated in the same change set.** You cannot leave downstream specs in a contradictory state and mark the work as "done." All specs in the dependency chain must be consistent before any code is written.
+
+The order of operations is always:
+1. Identify all affected specs (Layer 2)
+2. Update all affected specs atomically
+3. Verify coherence across the full set
+4. THEN implement code changes (Layer 3)
+5. THEN run tests
+
+Never write code to implement a spec change that has unresolved contradictions in other specs. The code will embed the contradiction and it will be much harder to fix later.
+
+---
+
+### 7.4 What You Are NOT Allowed to Do
+
+- **Do NOT edit a spec to make existing (broken) code "correct."** If the code violates the spec, fix the code. Only change the spec if the spec itself is wrong.
+- **Do NOT delete spec text to "simplify" without tracing what relied on it.** Deletion is the most dangerous edit — something downstream was almost certainly counting on that rule.
+- **Do NOT add a new rule to one spec without checking if a contradicting rule already exists** in another spec.
+- **Do NOT mark a spec change "complete" while any downstream spec still references the old behavior.** Partial consistency is no consistency.
 
 ---
 

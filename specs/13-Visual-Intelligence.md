@@ -28,7 +28,7 @@ Screenshots are captured in two scenarios:
 - Format: PNG
 - Maximum resolution: 1920x1080 (downsample if viewport is larger)
 - Full-page: `true` (capture entire scrollable content)
-- Storage: `{tmpdir}/openclaw-screenshot-{random}/{session_id}-{action}-{timestamp}.png`
+- Storage: `{tmpdir}/claw-screenshot-{random}/{session_id}-{action}-{timestamp}.png`
 
 ### 1.4 Checkpoint Integration
 
@@ -48,10 +48,10 @@ When an agent needs to interact with a visual element on a web page but cannot l
 
 | Provider | Model | Image Input Format |
 |----------|-------|-------------------|
-| Anthropic | `claude-sonnet-4-5-20250514` (default) | `content[].type: "image"` with `source.type: "base64"` |
+| Anthropic | `claude-sonnet-4-6` (default) | `content[].type: "image"` with `source.type: "base64"` |
 | OpenAI | `gpt-4o` (default) | `content[].type: "image_url"` with `data:image/png;base64,...` |
 
-The provider is selected based on available API keys (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). The model can be overridden via `OPENCLAW_VISION_MODEL` environment variable.
+The provider is selected based on available API keys (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). The model can be overridden via `CLAW_VISION_MODEL` environment variable.
 
 ### 2.3 Vision Request
 

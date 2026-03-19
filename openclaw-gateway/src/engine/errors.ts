@@ -19,3 +19,13 @@ export class HumanInterventionRequiredError extends Error {
     this.event = event;
   }
 }
+
+export class AssertionError extends Error {
+  nodePath: string;
+
+  constructor(message: string, nodePath: string) {
+    super(message);
+    this.name = "AssertionError";
+    this.nodePath = nodePath;
+  }
+}

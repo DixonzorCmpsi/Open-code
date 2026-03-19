@@ -13,6 +13,8 @@ This document defines the bidirectional WebSocket protocol used by the OpenClaw 
 
 **Note:** The hand-rolled implementation is acceptable for development and testing. Before any production deployment, the gateway MUST switch to the `ws` npm package (or equivalent audited library) to avoid edge cases in frame parsing, masking, and connection management.
 
+**Production TLS architecture:** TLS termination is handled by a reverse proxy (nginx, Caddy, AWS ALB, Cloudflare, etc.). The gateway itself serves plain `ws://` and `http://` on a local port; the reverse proxy upgrades and forwards secure `wss://` traffic. Running the gateway directly on a public port without TLS termination is not supported.
+
 ---
 
 ## 2. Connection Endpoint
@@ -139,11 +141,13 @@ Sent when the execution engine encounters a CAPTCHA or other human-blocking cond
     "reason": "CAPTCHA detected in browser automation",
     "metadata": {
       "url": "https://example.com",
-      "screenshot_path": "/tmp/openclaw-captcha-xyz/sess.png"
+      "screenshot_url": "/sessions/req_.../screenshot"
     }
   }
 }
 ```
+
+The screenshot is retrieved over authenticated HTTP from `GET /sessions/{session_id}/screenshot`. Filesystem paths MUST NOT be exposed to clients because the gateway and SDK consumer may be running on different machines.
 
 ### 4.4 `result` — Execution Complete
 

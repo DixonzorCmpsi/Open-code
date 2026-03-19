@@ -43,9 +43,11 @@ function compareApiKeys(provided: string, expected: string): boolean {
 
 ### 2.2 Key Sources
 
-- API keys are read from environment variables only (`OPENCLAW_GATEWAY_API_KEY` or `GATEWAY_AUTH_KEY`).
+- The gateway API key environment variable name is driven by `gateway.api_key_env` from `claw.json`. The default name is `CLAW_GATEWAY_API_KEY`.
+- `GATEWAY_AUTH_KEY` is a deprecated fallback for backward compatibility only.
+- Precedence when both are set: the variable named by `gateway.api_key_env` wins over `GATEWAY_AUTH_KEY`.
 - Keys MUST NOT be logged, committed, or included in error messages.
-- Both `x-openclaw-key` header and `Authorization: Bearer <key>` are accepted.
+- Both `x-claw-key` header and `Authorization: Bearer <key>` are accepted.
 
 ### 2.3 Auth Bypass
 
@@ -98,9 +100,9 @@ Content-Type: application/json
 Production deployments SHOULD additionally include:
 ```
 Strict-Transport-Security: max-age=31536000; includeSubDomains
-Access-Control-Allow-Origin: <configured-origin>
+Access-Control-Allow-Origin: <configured-origin from gateway.cors_origin>
 Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type, x-openclaw-key, Authorization
+Access-Control-Allow-Headers: Content-Type, x-claw-key, Authorization
 ```
 
 ### 3.3 JSON Parsing Safety
@@ -159,11 +161,15 @@ async function resolveToolPath(target: string, workspaceRoot: string): Promise<s
 
 **Rationale:** Without `realpath()`, a symlink inside the workspace can point to `/etc/passwd` or other sensitive files. The `path.relative()` check alone is insufficient because it operates on the symlink path, not the real target.
 
+**Platform note:** On Windows, modern Node.js `fs.realpath()` resolves directory junctions as well as symlinks. This repository requires Node.js `22.6+`, which is sufficient for consistent junction handling. UNC paths (`\\\\server\\share`) are absolute and MUST fail the containment check.
+
 ### 5.2 Docker Mount Safety
 
 - Workspace is mounted read-only: `-v ${workspaceRoot}:/workspace:ro`
 - Sandbox temp directory is the only writable mount
 - No host network access: `--network=none`
+
+On Windows, Docker bind mounts depend on Docker Desktop's WSL2 integration. Workspaces on non-`C:` drives or UNC network paths are not guaranteed to mount correctly. For reliable Docker sandboxing on Windows, running the gateway inside WSL2 is strongly recommended.
 
 ---
 
@@ -200,6 +206,18 @@ Every Docker sandbox execution MUST include:
 | 137 | OOM Kill (SIGKILL) | `SandboxOOMError` |
 | 139 | Segmentation fault | `SandboxCrashError` |
 | 143 | SIGTERM | `SandboxTimeoutError` |
+
+### 6.4 Local Sandbox Mode
+
+When `sandbox_backend` is `"local"`, custom tools execute as direct child subprocesses of the gateway with the same filesystem and network permissions as the gateway process. This mode provides **no isolation**, **no filesystem sandbox**, and **no network sandbox**.
+
+Local mode is acceptable only for local development where every tool is fully trusted. It MUST NOT be used in production, staging, CI environments that run untrusted code, or any deployment that accepts user-provided tools.
+
+The gateway MUST print a visible startup warning when running in local mode:
+
+```text
+[WARN] Sandbox backend is 'local' - custom tools run without isolation. Do not use in production.
+```
 
 ---
 

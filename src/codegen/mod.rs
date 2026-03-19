@@ -1,3 +1,4 @@
+pub mod baml;
 mod python;
 mod typescript;
 
@@ -11,6 +12,8 @@ use crate::ast::{
     Statement, TestDecl, ToolDecl, TypeDecl, TypeField, WorkflowDecl,
 };
 use crate::errors::CompilerResult;
+
+pub use baml::{BamlOutput, CallSiteSignature, ResolvedAgent, collect_call_sites, generate_baml, resolve_agents};
 
 pub fn generate_ts(document: &Document) -> CompilerResult<String> {
     typescript::generate(document)
@@ -214,7 +217,7 @@ fn write_statement(output: &mut String, statement: &Statement) {
         } => {
             write_tag(output, "execute_stmt");
             write_string(output, agent_name);
-            write_seq(output, "kwargs", kwargs, |output, kwarg| write_kwarg(output, kwarg));
+            write_seq(output, "kwargs", kwargs, write_kwarg);
             write_option_data_type(output, "require_type", require_type.as_ref());
         }
         Statement::Return { value, .. } => {
@@ -445,15 +448,28 @@ mod tests {
         SpannedExpr { expr, span }
     }
 
+    fn normalize_ast_hash(output: &str) -> String {
+        let prefix = r#"export const OPENCLAW_AST_HASH = ""#;
+        let Some(pos) = output.find(prefix) else {
+            return output.to_owned();
+        };
+        let hash_start = pos + prefix.len();
+        let hash_end = hash_start + 64;
+        if hash_end > output.len() {
+            return output.to_owned();
+        }
+        format!("{}<ast_hash>{}", &output[..hash_start], &output[hash_end..])
+    }
+
     #[test]
     fn emits_typescript_sdk_snapshot_for_valid_document() {
         let output = generate_ts(&valid_document()).unwrap();
 
-        insta::assert_snapshot!(output, @r#"
+        insta::assert_snapshot!(normalize_ast_hash(&output), @r#"
         import { z } from "zod";
         import { OpenClawClient } from "@openclaw/sdk";
 
-        export const OPENCLAW_AST_HASH = "30054357944bcfcab6fb77419a50085b8bbf33ca68d6f8c6d72e3ee565696259";
+        export const OPENCLAW_AST_HASH = "<ast_hash>";
 
         export interface SearchResult {
             url: string;
@@ -602,7 +618,7 @@ mod tests {
             clients: vec![ClientDecl {
                 name: "FastOpenAI".to_owned(),
                 provider: "openai".to_owned(),
-                model: "gpt-5.4".to_owned(),
+                model: "gpt-5.1".to_owned(),
                 retries: Some(2),
                 timeout_ms: Some(5_000),
                 endpoint: None,

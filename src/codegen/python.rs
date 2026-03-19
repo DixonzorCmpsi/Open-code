@@ -221,17 +221,30 @@ mod tests {
         SpannedExpr { expr, span }
     }
 
+    fn normalize_ast_hash(output: &str) -> String {
+        let prefix = r#"OPENCLAW_AST_HASH = ""#;
+        let Some(pos) = output.find(prefix) else {
+            return output.to_owned();
+        };
+        let hash_start = pos + prefix.len();
+        let hash_end = hash_start + 64;
+        if hash_end > output.len() {
+            return output.to_owned();
+        }
+        format!("{}<ast_hash>{}", &output[..hash_start], &output[hash_end..])
+    }
+
     #[test]
     fn emits_python_sdk_snapshot_for_valid_document() {
         let output = generate(&valid_document()).unwrap();
 
-        insta::assert_snapshot!(output, @r#"
+        insta::assert_snapshot!(normalize_ast_hash(&output), @r#"
         from typing import List
 
         from openclaw_sdk import OpenClawClient
         from pydantic import BaseModel, Field
 
-        OPENCLAW_AST_HASH = "83c19abe25ff2c4c38e08ecbeaaa2fa349266df89745c4d93d4242fa102e41be"
+        OPENCLAW_AST_HASH = "<ast_hash>"
 
         class SearchResult(BaseModel):
             url: str = Field(pattern=r"^https://")
@@ -307,7 +320,7 @@ mod tests {
             clients: vec![ClientDecl {
                 name: "FastOpenAI".to_owned(),
                 provider: "openai".to_owned(),
-                model: "gpt-5.4".to_owned(),
+                model: "gpt-5.1".to_owned(),
                 retries: Some(2),
                 timeout_ms: Some(5_000),
                 endpoint: None,

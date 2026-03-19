@@ -2,6 +2,7 @@
 name = "clawc"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -15,6 +16,10 @@ tokio = { version = "1", features = ["io-std", "macros", "rt-multi-thread", "syn
 thiserror = "2"
 tower-lsp = "0.20"
 winnow = "0.7"
+
+[[bin]]
+name = "claw"
+path = "src/bin/claw.rs"
 
 [dev-dependencies]
 insta = "1.46.3"

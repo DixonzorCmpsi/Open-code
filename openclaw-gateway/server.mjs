@@ -3,9 +3,9 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const port = Number(process.env.OPENCLAW_GATEWAY_PORT ?? 8080);
+const port = Number(process.env.CLAW_GATEWAY_PORT ?? 8080);
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const stateDir = join(rootDir, ".openclaw");
+const stateDir = join(rootDir, ".claw");
 const logFile = join(stateDir, "workflow-ingestor.ndjson");
 
 const workflowResults = {
@@ -60,8 +60,8 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, () => {
-  console.log(`[openclaw-gateway] listening on http://127.0.0.1:${port}`);
-  console.log(`[openclaw-gateway] log file ${logFile}`);
+  console.log(`[claw-gateway] listening on http://127.0.0.1:${port}`);
+  console.log(`[claw-gateway] log file ${logFile}`);
 });
 
 function readBody(request) {

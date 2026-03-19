@@ -1,6 +1,6 @@
 client FastOpenAI {
     provider = "openai"
-    model = "gpt-5.4"
+    model = "gpt-4o"
     retries = 3
 }
 

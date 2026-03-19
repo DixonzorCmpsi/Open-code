@@ -11,14 +11,25 @@ test("gateway auth is disabled when no api key env var is configured", () => {
   );
 });
 
-test("gateway auth accepts x-openclaw-key and bearer authorization headers", () => {
+test("gateway auth prefers the configured api key env var over the deprecated fallback", () => {
+  assert.equal(
+    gatewayApiKeyFromEnv({
+      CLAW_GATEWAY_API_KEY_ENV: "CUSTOM_GATEWAY_KEY",
+      CUSTOM_GATEWAY_KEY: "preferred",
+      GATEWAY_AUTH_KEY: "deprecated"
+    }),
+    "preferred"
+  );
+});
+
+test("gateway auth accepts x-claw-key and bearer authorization headers", () => {
   const expected = "prod_secret";
 
   assert.equal(
     authorizeGatewayRequest(
       {
         headers: {
-          "x-openclaw-key": expected
+          "x-claw-key": expected
         }
       },
       expected
@@ -46,7 +57,7 @@ test("gateway auth rejects missing and invalid api keys", () => {
       statusCode: 401,
       payload: {
         status: "unauthorized",
-        message: "Missing OpenClaw API key"
+        message: "Missing Claw API key"
       }
     }
   );
@@ -55,7 +66,7 @@ test("gateway auth rejects missing and invalid api keys", () => {
     authorizeGatewayRequest(
       {
         headers: {
-          "x-openclaw-key": "wrong"
+          "x-claw-key": "wrong"
         }
       },
       "prod_secret"
@@ -64,7 +75,7 @@ test("gateway auth rejects missing and invalid api keys", () => {
       statusCode: 403,
       payload: {
         status: "forbidden",
-        message: "Invalid OpenClaw API key"
+        message: "Invalid Claw API key"
       }
     }
   );

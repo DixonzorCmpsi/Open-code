@@ -37,6 +37,25 @@ pub enum CompilerError {
         span: Span,
     },
 
+    #[error("circular type `{type_name}` detected at {span:?} via {cycle_path:?}")]
+    CircularType {
+        type_name: String,
+        cycle_path: Vec<String>,
+        span: Span,
+    },
+
+    #[error("workflow `{workflow_name}` is missing a return on some control-flow paths at {span:?}")]
+    MissingReturn {
+        workflow_name: String,
+        span: Span,
+    },
+
+    #[error("invalid control flow `{keyword}` at {span:?}")]
+    InvalidControlFlow { keyword: String, span: Span },
+
+    #[error("assert statements are only allowed inside test blocks at {span:?}")]
+    InvalidAssertOutsideTest { span: Span },
+
     #[error("unsupported constraint `{name}` at {span:?}")]
     UnsupportedConstraint { name: String, span: Span },
 
@@ -53,6 +72,19 @@ pub enum CompilerError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("BAML signature conflict for agent `{agent_name}`: {message} at {span:?}")]
+    BamlSignatureConflict {
+        agent_name: String,
+        message: String,
+        span: Span,
+    },
+
+    #[error("circular agent extends: `{agent_name}` has a circular inheritance chain at {span:?}")]
+    CircularAgentExtends {
+        agent_name: String,
+        span: Span,
+    },
 }
 
 impl CompilerError {
@@ -64,9 +96,14 @@ impl CompilerError {
             | Self::UndefinedClient { span, .. }
             | Self::UndefinedType { span, .. }
             | Self::TypeMismatch { span, .. }
+            | Self::CircularType { span, .. }
+            | Self::MissingReturn { span, .. }
+            | Self::InvalidControlFlow { span, .. }
+            | Self::InvalidAssertOutsideTest { span, .. }
             | Self::UnsupportedConstraint { span, .. }
             | Self::InvalidConstraintValue { span, .. } => Some(span),
             Self::DuplicateSymbol { second_span, .. } => Some(second_span),
+            Self::BamlSignatureConflict { span, .. } | Self::CircularAgentExtends { span, .. } => Some(span),
             Self::Io { .. } => None,
         }
     }

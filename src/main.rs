@@ -389,7 +389,7 @@ mod tests {
         r#"
             client FastOpenAI {
                 provider = "openai"
-                model = "gpt-5.4"
+                model = "gpt-5.1"
                 retries = 3
             }
 

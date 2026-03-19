@@ -10,29 +10,31 @@ The `openclaw` binary is built in Rust and distributed as a standalone executabl
 
 | Command | Purpose |
 |---------|---------|
-| `openclaw init` | Scaffold a new OpenClaw project |
-| `openclaw build` | Compile `.claw` source to SDK files |
-| `openclaw dev` | Hot-reload development server (watch + gateway) |
-| `openclaw test` | Run `.claw` test blocks with mock injection (see `specs/17-Phase6-Test-Runner-And-Mocks.md`) |
+| `claw init` | Scaffold a new OpenClaw project |
+| `claw build` | Compile `.claw` source to SDK files |
+| `claw dev` | Hot-reload development server (watch + gateway) |
+| `claw test` | Run `.claw` test blocks with mock injection (see `specs/17-Phase6-Test-Runner-And-Mocks.md`) |
 
 ---
 
-## 2. `openclaw init`
+## 2. `claw init`
 
-**Usage:** `openclaw init [--path openclaw.json] [--force]`
+**Usage:** `claw init [--path claw.json] [--force]`
 
 **Behavior:**
 1. Detect the `.claw` entry file (prefer `example.claw`, fall back to `src/pipeline.claw`)
-2. Generate `openclaw.json` configuration file with sensible defaults
+2. Generate `claw.json` configuration file with sensible defaults
 3. If `--force` is not set and the file already exists, exit with an error
 
-**Generated `openclaw.json` structure:**
+**Generated `claw.json` structure:**
 
 ```json
 {
   "gateway": {
     "url": "http://127.0.0.1:8080",
-    "api_key_env": "OPENCLAW_GATEWAY_API_KEY"
+    "api_key_env": "CLAW_GATEWAY_API_KEY",
+    "executable": null,
+    "cors_origin": null
   },
   "build": {
     "source": "example.claw",
@@ -45,20 +47,24 @@ The `openclaw` binary is built in Rust and distributed as a standalone executabl
     "node_image": "node:22"
   },
   "llm_providers": [
-    { "name": "openai", "api_key_env": "OPENAI_API_KEY", "default_model": "gpt-5.4" },
-    { "name": "anthropic", "api_key_env": "ANTHROPIC_API_KEY", "default_model": "claude-sonnet-4-5" }
+    { "name": "openai", "api_key_env": "OPENAI_API_KEY", "default_model": "gpt-4o" },
+    { "name": "anthropic", "api_key_env": "ANTHROPIC_API_KEY", "default_model": "claude-sonnet-4-6" }
   ]
 }
 ```
 
+These model identifiers are only defaults. Implementations MUST verify provider model availability before release. Provider references:
+- OpenAI models: https://platform.openai.com/docs/models
+- Anthropic models: https://platform.claude.com/docs/en/about-claude/models/overview
+
 ---
 
-## 3. `openclaw build`
+## 3. `claw build`
 
-**Usage:** `openclaw build [source.claw] [--lang ts|python] [--watch] [--config openclaw.json]`
+**Usage:** `claw build [source.claw] [--lang ts|python] [--watch] [--config claw.json]`
 
 **Behavior:**
-1. Load `openclaw.json` if no source argument is provided
+1. Load `claw.json` if no source argument is provided
 2. Read `.claw` source file
 3. Run the full `clawc` pipeline: parse → semantic analysis → IR lowering → code generation
 4. Write output files to `generated/claw/`:
@@ -67,10 +73,11 @@ The `openclaw` binary is built in Rust and distributed as a standalone executabl
    - `documents/{ast_hash}.json` (hash-addressed copy)
 
 **Watch Mode (`--watch`):**
-- Monitor the `.claw` source file and `openclaw.json` for changes
+- Monitor the `.claw` source file and `claw.json` for changes
 - On file change, re-run the full build pipeline
 - Print `rebuilt {path}` on success, print error with line/column context on failure
 - If the source path changes in config, update the file watcher
+- The Rust CLI implementation MUST use the `notify` crate's cross-platform watcher with a short coalescing window to avoid duplicate rebuilds from single save events. Raw Node.js `fs.watch()` / `fs.watchFile()` are prohibited for this CLI implementation.
 
 **Exit Codes:**
 
@@ -95,17 +102,17 @@ error: undefined tool reference 'FakeTool'
 
 ---
 
-## 4. `openclaw dev`
+## 4. `claw dev`
 
-**Usage:** `openclaw dev [--config openclaw.json] [--port 8080]`
+**Usage:** `claw dev [--config claw.json] [--port 8080]`
 
 **Behavior:**
-1. Load `openclaw.json`
-2. Run an initial `openclaw build` (fail fast if the `.claw` file has errors)
-3. Start the `openclaw-gateway` as a child process on the specified port
+1. Load `claw.json`
+2. Run an initial `claw build` (fail fast if the `.claw` file has errors)
+3. Resolve and start the `openclaw-gateway` child process on the specified port
 4. Enter watch mode on the `.claw` source file
 5. On file change, rebuild the SDK (gateway does NOT restart — it loads documents dynamically by `ast_hash`)
-6. On `SIGTERM` or `SIGINT` (Ctrl+C), kill the gateway child process and exit cleanly
+6. On `SIGTERM` or `SIGINT` (Ctrl+C), request graceful gateway shutdown and exit cleanly
 
 **Console Output:**
 ```
@@ -116,19 +123,29 @@ error: undefined tool reference 'FakeTool'
 ```
 
 **Graceful Shutdown:**
-- On signal: send `SIGTERM` to gateway child process
+- On signal: first call authenticated `POST /shutdown` on the local gateway
 - Wait up to 5 seconds for child to exit
 - If child doesn't exit, send `SIGKILL`
 - Exit with code 0
 
+**Gateway Resolution Order:**
+1. `gateway.executable` from `claw.json` if set
+2. `node_modules/.bin/openclaw-gateway` relative to the project root
+3. `openclaw-gateway` on `$PATH`
+4. Monorepo development fallback: `node --experimental-strip-types openclaw-gateway/src/server.ts` when the source tree is present locally
+
+On Windows, the `.cmd` suffix is used automatically for steps 2 and 3 when present.
+
 ---
 
-## 5. Configuration (`openclaw.json`)
+## 5. Configuration (`claw.json`)
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `gateway.url` | string | Gateway endpoint URL |
 | `gateway.api_key_env` | string | Environment variable name for API key |
+| `gateway.executable` | string \| null | Explicit gateway executable path or command override |
+| `gateway.cors_origin` | string \| null | Allowed CORS origin. `null` disables CORS headers, `"*"` is development-only, specific origins are recommended for production |
 | `build.source` | string | Path to `.claw` source file |
 | `build.language` | `"ts"` or `"python"` | SDK target language |
 | `build.output_dir` | string | Output directory for generated files |
@@ -173,4 +190,4 @@ When the `--json` flag is set (future), CLI output uses newline-delimited JSON (
 {"level":"error","event":"parse_error","file":"example.claw","line":15,"column":22,"message":"undefined tool reference 'FakeTool'"}
 ```
 
-Log levels are controlled by `OPENCLAW_LOG_LEVEL` environment variable: `error`, `warn`, `info`, `debug`. Default: `info`.
+Log levels are controlled by `CLAW_LOG_LEVEL` environment variable: `error`, `warn`, `info`, `debug`. Default: `info`.

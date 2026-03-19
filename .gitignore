@@ -1,4 +1,4 @@
 target/
 generated/
 node_modules/
-openclaw-gateway/.openclaw/
+openclaw-gateway/.claw/

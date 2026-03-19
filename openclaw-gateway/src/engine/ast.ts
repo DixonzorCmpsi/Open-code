@@ -5,14 +5,29 @@ import type {
   DataType,
   Document,
   Expr,
+  SpannedExpr,
   Statement,
   ToolDecl,
   TypeDecl,
   WorkflowDecl
 } from "../types.ts";
 
-export function getVariant<T extends Record<string, unknown>>(value: T): [string, unknown] {
-  const entries = Object.entries(value);
+function isSpannedExpr(value: unknown): value is SpannedExpr {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "expr" in value &&
+    "span" in value &&
+    Object.keys(value).length === 2
+  );
+}
+
+export function unwrapExpr<T>(value: T | SpannedExpr): T {
+  return isSpannedExpr(value) ? (value.expr as T) : (value as T);
+}
+
+export function getVariant<T extends Record<string, unknown>>(value: T | SpannedExpr): [string, unknown] {
+  const entries = Object.entries(unwrapExpr(value) as Record<string, unknown>);
   if (entries.length !== 1) {
     throw new Error(`Expected single-variant object, received ${JSON.stringify(value)}`);
   }
@@ -76,12 +91,22 @@ export function resolveBlock(document: Document, blockPath: string): Block {
 
   let current: unknown = workflow;
   for (const part of parts.slice(1)) {
-    if (part === "body") {
+    if (
+      part === "body" &&
+      typeof current === "object" &&
+      current !== null &&
+      "body" in current
+    ) {
       current = (current as WorkflowDecl | { body: Block }).body;
       continue;
     }
 
-    if (part === "statements") {
+    if (
+      part === "statements" &&
+      typeof current === "object" &&
+      current !== null &&
+      "statements" in current
+    ) {
       current = (current as Block).statements;
       continue;
     }
@@ -100,12 +125,46 @@ export function resolveBlock(document: Document, blockPath: string): Block {
       current = (payload as { if_body: Block }).if_body;
       continue;
     }
+    if (variantName === "TryCatch" && part === "try_body") {
+      current = (payload as { try_body: Block }).try_body;
+      continue;
+    }
+    if (variantName === "TryCatch" && part === "catch_body") {
+      current = (payload as { catch_body: Block }).catch_body;
+      continue;
+    }
     if (variantName === "IfCond" && part === "else_body") {
-      current = (payload as { else_body: Block | null }).else_body;
+      const rawElse = (payload as { else_body: unknown }).else_body;
+      if (!rawElse) {
+        current = null;
+      } else if (
+        typeof rawElse === "object" &&
+        rawElse !== null &&
+        "statements" in rawElse &&
+        "span" in rawElse
+      ) {
+        current = rawElse;
+      } else {
+        const [branchKind, branchPayload] = getVariant(rawElse as Record<string, unknown>);
+        if (branchKind === "Else") {
+          // ElseBranch::Else(Block) — payload is the Block directly
+          current = branchPayload;
+        } else if (branchKind === "ElseIf") {
+          // ElseBranch::ElseIf(Box<Statement>) — synthesize a single-statement Block
+          // so the frame executor can process it via the normal executeStatement path
+          current = { statements: [branchPayload], span: { start: 0, end: 0 } };
+        } else {
+          throw new Error(`Unexpected else branch kind "${branchKind}" in path ${blockPath}`);
+        }
+      }
       continue;
     }
 
     throw new Error(`Unsupported block path segment ${part} in ${blockPath}`);
+  }
+
+  if (!current || typeof current !== "object" || !("statements" in current)) {
+    throw new Error(`Resolved block path ${blockPath} did not produce a block`);
   }
 
   return current as Block;

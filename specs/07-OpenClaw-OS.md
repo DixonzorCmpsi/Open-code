@@ -10,6 +10,8 @@ This document serves as the architecture contract between the compiled `.claw` S
 * **The Generated SDK:** The code running in the developer's server. It serializes the inputs and waits for answers. It does *not* interact with Playwright or LLM keys directly.
 * **OpenClaw OS (The Gateway):** A persistent background server (written in TypeScript/Node) that acts as the physical operating system for the agents.
 
+**Minimum Node.js version:** `22.6.0` or higher. The gateway uses native TypeScript execution via `--experimental-strip-types` and `node:sqlite`, so Node 18/20 are not sufficient for this implementation. Node 22 LTS or newer is recommended.
+
 ## 2. The Execution Contract
 
 When a developer calls a `.claw` workflow in their backend script:
@@ -35,7 +37,7 @@ Upon receiving this payload, the OpenClaw OS is responsible for:
 3. **Constrained Decoding (The Bouncer):** It enforces the TypeBox schemas defined by the DSL, ensuring the LLM token output perfectly matches the expected tool signature.
 4. **Schema Degradation Prevention:** The OS inspects the final JSON payload from an LLM call ALONGSIDE the TypeBox schema. The `isSchemaDegraded(value, schema)` function receives BOTH the response AND the schema so it can determine zero-values per-type (0 for numbers, "" for strings, false for booleans). A response is **degraded** if and only if **ALL** leaf values are their type's zero-value simultaneously. Individual `0`, `false`, or `""` values are NOT degraded. Only when the entire response is uniformly blank/zero does the OS throw `SchemaDegradationError`.
 5. **Physical Tool Execution:** When the LLM calls `Browser.search`, the OpenClaw OS spins up a headless Chromium instance, executes the search, and returns the raw DOM context. See `specs/13-Visual-Intelligence.md` for screenshot and vision capabilities.
-6. **State Checkpointing & Resumption:** The Gateway acts as an Event Sourcing engine. After **every** successfully completed AST node execution — including `LetDecl`, `ForLoop`, `IfCond`, `ExecuteRun`, `Return`, `Expression`, `MethodCall`, and `BinaryOp` — the OS commits the execution state to a persistent checkpoint store. No statement type is exempt from checkpointing. By default, state is stored in a local SQLite file in the `.openclaw/` directory. In distributed production environments, this can be swapped to Redis via the `REDIS_URL` environment variable. If the server crashes, any gateway instance in the cluster can resume the AST traversal exactly where it left off using the same `session_id`.
+6. **State Checkpointing & Resumption:** The Gateway acts as an Event Sourcing engine. After **every** successfully completed AST node execution — including `LetDecl`, `ForLoop`, `IfCond`, `ExecuteRun`, `Return`, `Expression`, `MethodCall`, and `BinaryOp` — the OS commits the execution state to a persistent checkpoint store. No statement type is exempt from checkpointing. By default, state is stored in `{projectRoot}/.claw/engine.sqlite`, where `projectRoot` is resolved by walking upward from the current working directory until `openclaw.json` is found, falling back to the current working directory if no config file is present. On Windows, the `.openclaw` directory should be marked hidden when possible. In distributed production environments, this can be swapped to Redis via the `REDIS_URL` environment variable. Supported formats are `redis://[user:pass@]host:port[/db]` for plaintext and `rediss://[user:pass@]host:port[/db]` for TLS. Redis Sentinel and Redis Cluster are not supported in v1. If the server crashes, any gateway instance in the cluster can resume the AST traversal exactly where it left off using the same `session_id`.
 
 ## 3. Sandboxing External Tools (Python/TypeScript)
 
@@ -95,7 +97,7 @@ All gateway security requirements are defined in `specs/12-Security-Model.md`. K
 The gateway uses OpenAI's Responses API with structured output:
 ```json
 {
-  "model": "gpt-5.4",
+  "model": "gpt-4o",
   "input": [
     { "role": "system", "content": "..." },
     { "role": "user", "content": "..." }
@@ -115,7 +117,7 @@ The gateway MUST use Anthropic's `tools` parameter with `input_schema` for const
 
 ```json
 {
-  "model": "claude-sonnet-4-5-20250514",
+  "model": "claude-sonnet-4-6",
   "max_tokens": 4096,
   "system": "You are a deterministic OpenClaw execution agent.",
   "tools": [
@@ -137,6 +139,8 @@ The gateway MUST use Anthropic's `tools` parameter with `input_schema` for const
 ```
 
 The response is extracted from `content[].type === "tool_use"` → `content[].input`.
+
+Model identifiers above are illustrative defaults, not eternal constants. Implementations MUST verify current provider model IDs before shipping generated defaults or examples.
 
 **NEVER** place `response_schema` inside the message content string — Anthropic's API ignores fields embedded in message content.
 
@@ -160,6 +164,8 @@ On `SIGTERM` or `SIGINT`:
 5. Exit with code 0
 
 In-flight sessions that don't complete within the drain period are checkpointed at their current state and can be resumed later.
+
+On Windows, `SIGTERM` is not delivered for normal process management. The gateway MUST additionally expose an authenticated `POST /shutdown` endpoint that performs the same graceful drain sequence. The `openclaw dev` command MUST use this endpoint for programmatic shutdown on Windows, and MAY use it on Unix as well before falling back to process termination.
 
 ---
 

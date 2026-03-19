@@ -33,6 +33,9 @@ Remaining compiler features defined in specs 02-05 but not yet implemented. Each
 - Do NOT add new circular detection for agent DELEGATION loops (spec 02 mandates this but it requires call-graph analysis across workflows, which is Phase 7). However, circular EXTENDS chains (A extends B, B extends A) MUST be detected — this is covered by Spec 18's `resolve_agents()` which includes an extends-chain cycle guard.
 - Do NOT change the public `analyze()` function signature — add `analyze_collecting()` alongside it
 
+- Do NOT perform expression-iterator item-type inference beyond a simple identifier lookup in Phase 6. `for (item in result.tags)` parses and executes, but compile-time item binding only occurs when the iterator resolves to a known list-typed variable.
+
+
 ---
 
 ## 1. try/catch Statement
@@ -156,6 +159,7 @@ export type ExecutionFrame = BlockFrame | LoopFrame | TryCatchFrame;
 
 - `catch_name` is scoped to `catch_body` only.
 - `catch_type` MUST exist in symbol table (built-in or user-defined).
+- Before validating `catch_body`, clone the current `TypeEnv` and insert `{ catch_name: TypeShape::Custom(catch_type_name) }` (or the equivalent built-in error type shape) into that catch-local env only.
 - Both `try_body` and `catch_body` contribute to return analysis independently.
 
 ---
@@ -209,11 +213,11 @@ CompilerError::InvalidControlFlow {
 
 ### TDD Tests
 
-1. **`test_parse_continue`** — Parse continue in for loop body.
-2. **`test_parse_break`** — Parse break in for loop body.
-3. **`test_semantic_reject_continue_outside_loop`** → `InvalidControlFlow`.
-4. **`test_semantic_reject_break_outside_loop`** → `InvalidControlFlow`.
-5. **`test_semantic_accept_continue_in_nested_if_inside_loop`** → `Ok(())`.
+1. **`test_parse_continue`** � Parse continue in for loop body.
+2. **`test_parse_break`** � Parse break in for loop body.
+3. **`test_semantic_reject_continue_outside_loop`** ? `InvalidControlFlow`.
+4. **`test_semantic_reject_break_outside_loop`** ? `InvalidControlFlow`.
+5. **`test_semantic_accept_continue_in_nested_if_inside_loop`** ? `Ok(())`.
 
 ### Loop Depth Tracking
 
@@ -274,6 +278,11 @@ case "BinaryOp": {
 ### TDD Tests
 
 1-4: Parse each operator. 5: Semantic reject comparison on string. 6: Snapshot all 6 operators.
+
+### Semantic Rules
+
+- `==` and `!=` accept any pair of operands that resolve to the SAME type.
+- `<`, `>`, `<=`, and `>=` require numeric operands (`int` or `float`). Mixed `int`/`float` comparisons are allowed; non-numeric operands MUST produce `CompilerError::TypeMismatch`.
 
 ---
 
@@ -449,6 +458,10 @@ impl CompilationReport {
 
 This is a backwards-compatibility shim ONLY for callers that haven't migrated. New code SHOULD use `analyze_collecting()` directly.
 
+### `analyze()` Delegation (MANDATORY)
+
+The existing `analyze()` function MUST delegate to `analyze_collecting().into_result()` so that all Phase 6 checks apply to `clawc build` and any legacy callers as well.
+
 ### New Error Variants — `span()` Update
 
 **MUST** add match arms to the existing `span()` method in `errors.rs` for:
@@ -479,3 +492,9 @@ statement = {
 ```
 
 `member_access_expr` enables `result.tags` (field access) which is required for `result.tags.length()` (method call on accessed field).
+
+
+
+
+
+

@@ -2,6 +2,10 @@
 
 This document serves as the exact code process specification for the Agent building the `clawc` compiler. It defines the codebase structure and the strict order of operations required to build the compiler successfully.
 
+**Minimum toolchain versions:**
+- **Rust:** `1.75.0` stable or newer. `Cargo.toml` MUST declare `rust-version = "1.75"`.
+- **Node.js:** `22.6.0` or newer for the TypeScript gateway and native `--experimental-strip-types` execution paths used by this repository.
+
 ## 1. Codebase Structure (`src/`)
 
 The repository will be structured as a standard Rust CLI application (`cargo new clawc --bin`).

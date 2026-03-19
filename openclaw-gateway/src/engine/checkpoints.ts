@@ -56,7 +56,7 @@ export class CheckpointStore {
         ? new RedisCheckpointBackend(
             resolvedOptions.redisClient ??
               createRedisClient(resolvedOptions.redisUrl!),
-            resolvedOptions.redisNamespace ?? "openclaw"
+            resolvedOptions.redisNamespace ?? "claw"
           )
         : new SqliteCheckpointBackend(resolvedOptions.databasePath);
   }
@@ -322,7 +322,7 @@ async function createRedisClient(redisUrl: string): Promise<RedisLikeClient> {
   const { createClient } = await import("redis");
   const client = createClient({ url: redisUrl });
   client.on("error", (error) => {
-    console.error("[openclaw-gateway] redis client error", error);
+    console.error("[claw-gateway] redis client error", error);
   });
   await client.connect();
   return client as RedisLikeClient;

@@ -3,7 +3,7 @@ import { access, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, extname, join, relative, resolve } from "node:path";
+import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_SANDBOX_TIMEOUT_MS = 30_000;
@@ -101,10 +101,10 @@ async function executeIsolatedCommand(
   options: ExecutionOptions = {}
 ): Promise<unknown> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_SANDBOX_TIMEOUT_MS;
-  const backend = process.env.OPENCLAW_SANDBOX_BACKEND === "docker" ? "docker" : "local";
+  const backend = process.env.CLAW_SANDBOX_BACKEND === "docker" ? "docker" : "local";
   const sandboxDir =
     backend === "docker"
-      ? await mkdtemp(join(tmpdir(), "openclaw-tool-"))
+      ? await mkdtemp(join(tmpdir(), "claw-tool-"))
       : null;
   const command = await buildSandboxCommand(
     descriptor,
@@ -121,7 +121,7 @@ async function executeIsolatedCommand(
         stdio: ["pipe", "pipe", "pipe"],
         env: {
           ...process.env,
-          OPENCLAW_SANDBOX_MODE: command.mode
+          CLAW_SANDBOX_MODE: command.mode
         }
       });
 
@@ -173,10 +173,10 @@ async function executeIsolatedCommand(
 async function buildSandboxCommand(
   descriptor: RuntimeDescriptor,
   workspaceRoot: string,
-  backend: "docker" | "local" = process.env.OPENCLAW_SANDBOX_BACKEND === "docker"
+  backend: "docker" | "local" = process.env.CLAW_SANDBOX_BACKEND === "docker"
     ? "docker"
     : "local",
-  sandboxDir = "/tmp/openclaw-sandbox"
+  sandboxDir = "/tmp/claw-sandbox"
 ): Promise<{ command: string; args: string[]; mode: "docker" | "local" }> {
   if (backend === "docker") {
     return buildDockerSandboxCommand(descriptor, workspaceRoot, sandboxDir);
@@ -242,7 +242,7 @@ async function buildDockerSandboxCommand(
   ];
 
   if (descriptor.runtime === "python") {
-    const image = process.env.OPENCLAW_PYTHON_SANDBOX_IMAGE ?? "python:3.11-slim";
+    const image = process.env.CLAW_PYTHON_SANDBOX_IMAGE ?? "python:3.11-slim";
     const targetArgs = looksLikePythonModule(descriptor.target)
       ? ["-e", `PYTHONPATH=${workspaceMount}`, image, "python", "-m", descriptor.target]
       : [
@@ -262,7 +262,7 @@ async function buildDockerSandboxCommand(
     };
   }
 
-  const image = process.env.OPENCLAW_NODE_SANDBOX_IMAGE ?? "node:22";
+  const image = process.env.CLAW_NODE_SANDBOX_IMAGE ?? "node:22";
   const targetPath = await resolveExistingPath(descriptor.target, workspaceRoot, [".ts", ".mts", ".js", ".mjs"]);
   return {
     command: "docker",
@@ -298,7 +298,7 @@ async function resolveExistingPath(target: string, workspaceRoot: string, extens
       await access(candidate, constants.R_OK);
       const real = await realpath(candidate);
       const rel = relative(realWorkspace, real);
-      if (rel.startsWith("..") || resolve("/", rel) === rel) {
+      if (rel.startsWith("..") || isAbsolute(rel)) {
         throw new Error(`Tool target resolves outside workspace: ${target}`);
       }
       return real;
@@ -335,13 +335,13 @@ function toContainerPath(workspaceRoot: string, resolvedPath: string, workspaceM
  * incur the image download penalty. Runs in the background and logs results.
  */
 export async function prePullSandboxImages(): Promise<void> {
-  if (process.env.OPENCLAW_SANDBOX_BACKEND !== "docker") {
+  if (process.env.CLAW_SANDBOX_BACKEND !== "docker") {
     return;
   }
 
   const images = [
-    process.env.OPENCLAW_PYTHON_SANDBOX_IMAGE ?? "python:3.11-slim",
-    process.env.OPENCLAW_NODE_SANDBOX_IMAGE ?? "node:22"
+    process.env.CLAW_PYTHON_SANDBOX_IMAGE ?? "python:3.11-slim",
+    process.env.CLAW_NODE_SANDBOX_IMAGE ?? "node:22"
   ];
 
   await Promise.allSettled(
