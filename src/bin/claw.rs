@@ -437,8 +437,25 @@ fn find_runtime_js(override_path: Option<PathBuf>) -> Result<PathBuf, ClawCliErr
     ))
 }
 
-fn check_node_version() -> Result<(), ClawCliError> {
-    let output = Command::new("node").arg("--version").output()
+fn find_node_binary() -> Option<String> {
+    let candidates = [
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+        "node",
+    ];
+    for path in &candidates {
+        if Command::new(path).arg("--version").output().is_ok() {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
+fn check_node_version() -> Result<String, ClawCliError> {
+    let node = find_node_binary()
+        .ok_or_else(|| ClawCliError::Message("E-RT02: Node.js not found — install Node.js >= 18 from https://nodejs.org".to_owned()))?;
+    let output = Command::new(&node).arg("--version").output()
         .map_err(|_| ClawCliError::Message("E-RT02: Node.js not found — install Node.js >= 18 from https://nodejs.org".to_owned()))?;
     let version_str = String::from_utf8_lossy(&output.stdout);
     // Parse vMAJOR.minor.patch
@@ -453,11 +470,11 @@ fn check_node_version() -> Result<(), ClawCliError> {
             version_str.trim()
         )));
     }
-    Ok(())
+    Ok(node)
 }
 
 fn run_run(args: RunArgs) -> Result<(), ClawCliError> {
-    check_node_version()?;
+    let node = check_node_version()?;
     let runtime = find_runtime_js(args.runtime)?;
 
     // Build argv: node runtime.js <workflow> [--arg key=value ...]
@@ -467,7 +484,7 @@ fn run_run(args: RunArgs) -> Result<(), ClawCliError> {
         node_args.push(kv.clone());
     }
 
-    let status = Command::new("node")
+    let status = Command::new(&node)
         .args(&node_args)
         .status()
         .map_err(|e| ClawCliError::Message(format!("failed to spawn node: {e}")))?;
@@ -480,11 +497,11 @@ fn run_run(args: RunArgs) -> Result<(), ClawCliError> {
 }
 
 fn run_chat(args: ChatArgs) -> Result<(), ClawCliError> {
-    check_node_version()?;
+    let node = check_node_version()?;
     let runtime = find_runtime_js(args.runtime)?;
 
     // Get list of workflows
-    let list_output = Command::new("node")
+    let list_output = Command::new(&node)
         .arg(&runtime)
         .arg("--list")
         .output()
@@ -535,7 +552,7 @@ fn run_chat(args: ChatArgs) -> Result<(), ClawCliError> {
             node_args.push(token.to_owned());
         }
 
-        let status = Command::new("node")
+        let status = Command::new(&node)
             .args(&node_args)
             .status()
             .map_err(|e| ClawCliError::Message(format!("failed to spawn node: {e}")))?;

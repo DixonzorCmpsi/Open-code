@@ -1,8 +1,24 @@
 use std::fs;
+use std::process::Command;
 use tempfile::tempdir;
 use crate::parser;
 use crate::semantic;
 use crate::codegen;
+
+fn find_node() -> Option<String> {
+    let candidates = [
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+        "node",
+    ];
+    for path in &candidates {
+        if Command::new(path).arg("--version").output().is_ok() {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
 
 // Minimal valid .claw document used across multiple tests
 const FULL_DOC: &str = r#"
@@ -288,4 +304,148 @@ tool ExtractKeywords(text: string) -> KeywordList {
     let mcp = fs::read_to_string(dir.path().join("generated/mcp-server.js")).unwrap();
     assert!(mcp.contains("baml_client/index.js"), "BAML tool handler must import baml_client");
     assert!(!mcp.contains("scripts/stub"), "BAML tool must NOT fall back to scripts/stub");
+}
+
+// ── Spec 40: runtime.js codegen tests ────────────────────────────────────────
+
+#[test]
+fn test_runtime_js_generated_on_build() {
+    let doc = parser::parse(FULL_DOC).expect("parse failed");
+    semantic::analyze(&doc).expect("semantic failed");
+
+    let dir = tempdir().unwrap();
+    codegen::generate_runtime(&doc, dir.path()).expect("generate_runtime failed");
+
+    assert!(
+        dir.path().join("generated/runtime.js").exists(),
+        "generate_runtime must write generated/runtime.js"
+    );
+}
+
+#[test]
+fn test_runtime_js_zero_npm_imports() {
+    let doc = parser::parse(FULL_DOC).expect("parse failed");
+    semantic::analyze(&doc).expect("semantic failed");
+
+    let dir = tempdir().unwrap();
+    codegen::generate_runtime(&doc, dir.path()).expect("generate_runtime failed");
+
+    let content = fs::read_to_string(dir.path().join("generated/runtime.js")).unwrap();
+
+    assert!(!content.contains("require("), "runtime.js must not use require()");
+    assert!(!content.contains("@anthropic-ai/sdk"), "runtime.js must not import @anthropic-ai/sdk");
+    assert!(!content.contains("@modelcontextprotocol/sdk"), "runtime.js must not import @modelcontextprotocol/sdk");
+    assert!(content.contains("fetch("), "runtime.js must use raw fetch()");
+}
+
+#[test]
+fn test_runtime_js_list_flag_emitted() {
+    let doc = parser::parse(FULL_DOC).expect("parse failed");
+    semantic::analyze(&doc).expect("semantic failed");
+
+    let dir = tempdir().unwrap();
+    codegen::generate_runtime(&doc, dir.path()).expect("generate_runtime failed");
+
+    let content = fs::read_to_string(dir.path().join("generated/runtime.js")).unwrap();
+
+    assert!(content.contains("--list"), "runtime.js must handle --list flag");
+    assert!(content.contains("Object.values(PLANS)"), "runtime.js --list must enumerate PLANS");
+}
+
+#[test]
+fn test_runtime_js_task_template_is_plain_string() {
+    let doc = parser::parse(FULL_DOC).expect("parse failed");
+    semantic::analyze(&doc).expect("semantic failed");
+
+    let dir = tempdir().unwrap();
+    codegen::generate_runtime(&doc, dir.path()).expect("generate_runtime failed");
+
+    let content = fs::read_to_string(dir.path().join("generated/runtime.js")).unwrap();
+
+    // taskTemplate must be a plain double-quoted string so interpolate() can expand ${var} at runtime.
+    // Template literals (backticks) would evaluate ${topic} at JS parse time against module scope.
+    assert!(
+        content.contains(r#"taskTemplate: "find "#),
+        "taskTemplate must be a double-quoted string, not a template literal"
+    );
+    assert!(
+        !content.contains("taskTemplate: `"),
+        "taskTemplate must NOT be a backtick template literal"
+    );
+}
+
+#[test]
+fn test_runtime_js_node_syntax_check() {
+    let doc = parser::parse(FULL_DOC).expect("parse failed");
+    semantic::analyze(&doc).expect("semantic failed");
+
+    let dir = tempdir().unwrap();
+    codegen::generate_runtime(&doc, dir.path()).expect("generate_runtime failed");
+
+    let node = match find_node() {
+        Some(n) => n,
+        None => { println!("skip: node not found"); return; }
+    };
+
+    let status = Command::new(&node)
+        .arg("--check")
+        .arg(dir.path().join("generated/runtime.js"))
+        .status()
+        .unwrap();
+
+    assert!(status.success(), "runtime.js must pass node --check (no syntax errors)");
+}
+
+#[test]
+fn test_runtime_js_list_flag_valid_json() {
+    let doc = parser::parse(FULL_DOC).expect("parse failed");
+    semantic::analyze(&doc).expect("semantic failed");
+
+    let dir = tempdir().unwrap();
+    codegen::generate_runtime(&doc, dir.path()).expect("generate_runtime failed");
+
+    let node = match find_node() {
+        Some(n) => n,
+        None => { println!("skip: node not found"); return; }
+    };
+
+    let output = Command::new(&node)
+        .arg(dir.path().join("generated/runtime.js"))
+        .arg("--list")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "--list must exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
+        .expect("--list output must be valid JSON");
+    let arr = parsed.as_array().expect("--list output must be a JSON array");
+    assert!(!arr.is_empty(), "--list must contain at least one workflow");
+    assert!(arr[0]["name"].is_string(), "each workflow must have a 'name' field");
+    assert!(arr[0]["requiredArgs"].is_array(), "each workflow must have a 'requiredArgs' field");
+}
+
+#[test]
+fn test_runtime_js_no_workflows_emits_empty_plans() {
+    let input = r#"
+client C {
+    provider = "anthropic"
+    model = "claude-4-sonnet"
+}
+agent A {
+    client = C
+}
+"#;
+    let doc = parser::parse(input).expect("parse failed");
+    let dir = tempdir().unwrap();
+    codegen::generate_runtime(&doc, dir.path()).expect("generate_runtime failed");
+
+    let content = fs::read_to_string(dir.path().join("generated/runtime.js")).unwrap();
+    assert!(
+        content.contains("const PLANS = {};"),
+        "no workflows must produce empty PLANS object (got: {})",
+        &content[content.find("const PLANS").unwrap_or(0)..
+                  (content.find("const PLANS").unwrap_or(0) + 80).min(content.len())]
+    );
 }

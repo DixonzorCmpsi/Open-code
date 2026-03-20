@@ -3,18 +3,8 @@ use assert_cmd::prelude::*;
 use tempfile::tempdir;
 use std::fs;
 
-fn find_node() -> Option<String> {
-    let candidates = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node", "node"];
-    for path in &candidates {
-        if std::path::Path::new(path).exists() || *path == "node" {
-            // Try executing it to confirm it works
-            if Command::new(path).arg("--version").output().is_ok() {
-                return Some(path.to_string());
-            }
-        }
-    }
-    None
-}
+mod helpers;
+use helpers::find_node;
 
 #[test]
 fn test_mcp_server_starts_and_lists_tools() {

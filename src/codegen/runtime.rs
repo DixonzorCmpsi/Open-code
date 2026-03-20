@@ -321,7 +321,11 @@ fn emit_plans(document: &Document) -> String {
             steps = steps,
         ));
     }
-    format!("const PLANS = {{\n{}\n}};\n\n", entries.join(",\n"))
+    if entries.is_empty() {
+        "const PLANS = {};\n\n".to_owned()
+    } else {
+        format!("const PLANS = {{\n{}\n}};\n\n", entries.join(",\n"))
+    }
 }
 
 fn compile_steps(block: &Block) -> String {
