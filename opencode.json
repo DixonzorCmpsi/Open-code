@@ -1,0 +1,24 @@
+{
+  "instructions": [
+    "generated/claw-context.md"
+  ],
+  "mcp": {
+    "claw-tools": {
+      "command": [
+        "/opt/homebrew/bin/node",
+        "generated/mcp-server.js"
+      ],
+      "type": "local"
+    }
+  },
+  "model": "ollama/qwen2.5:14b",
+  "provider": {
+    "ollama": {
+      "api": "http://localhost:11434/v1",
+      "models": {
+        "qwen2.5-coder:7b": {},
+        "qwen2.5:14b": {}
+      }
+    }
+  }
+}

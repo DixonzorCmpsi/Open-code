@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@claw/sdk": "file:packages/claw-sdk",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "redis": "^5.11.0",
     "zod": "file:packages/zod"
   }
