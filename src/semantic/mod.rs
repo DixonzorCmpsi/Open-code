@@ -190,6 +190,7 @@ fn statement_always_returns(statement: &Statement) -> bool {
         | Statement::Assert { .. }
         | Statement::Continue(_)
         | Statement::Break(_)
+        | Statement::Reason { .. }
         | Statement::Expression(_) => false,
     }
 }
@@ -231,6 +232,7 @@ mod tests {
             system_prompt: None,
             tools: Vec::new(),
             settings: empty_settings(121, 123),
+            dynamic_reasoning: std::cell::Cell::new(false),
             span: 121..150,
         });
 
@@ -778,6 +780,9 @@ mod tests {
                 }],
                 return_type: Some(custom_type("SearchResult", 73, 85)),
                 invoke_path: Some("scripts.search.run".to_owned()),
+                using: None,
+                synthesizer: None,
+                test_block: None,
                 span: 59..90,
             }],
             agents: vec![AgentDecl {
@@ -787,6 +792,7 @@ mod tests {
                 system_prompt: Some("be precise".to_owned()),
                 tools: vec!["WebSearch".to_owned()],
                 settings: empty_settings(40, 58),
+                dynamic_reasoning: std::cell::Cell::new(false),
                 span: 40..58,
             }],
             workflows: vec![WorkflowDecl {
@@ -834,6 +840,7 @@ mod tests {
             listeners: Vec::new(),
             tests: Vec::new(),
             mocks: Vec::new(),
+            synthesizers: Vec::new(),
             span: 0..273,
         }
     }

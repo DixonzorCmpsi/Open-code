@@ -7,8 +7,8 @@ use winnow::token::{take_till, take_while};
 
 use crate::ast::{
     AgentDecl, AgentSetting, AgentSettings, BinaryOp, Block, ClientDecl, Constraint, DataType,
-    Document, ElseBranch, Expr, ImportDecl, ListenerDecl, MockDecl, SettingValue, SpannedExpr,
-    Statement, TestDecl, ToolDecl, TypeDecl, TypeField, WorkflowDecl,
+    Document, ElseBranch, ExpectOp, Expr, ImportDecl, ListenerDecl, MockDecl, SettingValue, SpannedExpr,
+    Statement, SynthesizerDecl, TestBlock, TestDecl, ToolDecl, TypeDecl, TypeField, UsingExpr, WorkflowDecl,
 };
 use crate::errors::{CompilerError, CompilerResult};
 
@@ -21,6 +21,7 @@ enum Declaration {
     Import(ImportDecl),
     Type(TypeDecl),
     Client(ClientDecl),
+    Synthesizer(SynthesizerDecl),
     Tool(ToolDecl),
     Agent(AgentDecl),
     Workflow(WorkflowDecl),
@@ -36,6 +37,12 @@ enum ClientSettingValue {
     Timeout(u32),
     Endpoint(SpannedExpr),
     ApiKey(SpannedExpr),
+}
+
+enum SynthesizerSettingValue {
+    Client(String),
+    Temperature(f64),
+    MaxTokens(u64),
 }
 
 enum AgentProperty {
@@ -124,6 +131,7 @@ fn document(input: &mut Input<'_>) -> PResult<Document> {
                     listeners: Vec::new(),
                     tests: Vec::new(),
                     mocks: Vec::new(),
+                    synthesizers: Vec::new(),
                     span: 0..0,
                 };
 
@@ -132,6 +140,7 @@ fn document(input: &mut Input<'_>) -> PResult<Document> {
                         Declaration::Import(declaration) => document.imports.push(declaration),
                         Declaration::Type(declaration) => document.types.push(declaration),
                         Declaration::Client(declaration) => document.clients.push(declaration),
+                        Declaration::Synthesizer(declaration) => document.synthesizers.push(declaration),
                         Declaration::Tool(declaration) => document.tools.push(declaration),
                         Declaration::Agent(declaration) => document.agents.push(declaration),
                         Declaration::Workflow(declaration) => document.workflows.push(declaration),
@@ -158,6 +167,7 @@ fn declaration(input: &mut Input<'_>) -> PResult<Declaration> {
         import_decl.map(Declaration::Import),
         type_decl.map(Declaration::Type),
         client_decl.map(Declaration::Client),
+        synthesizer_decl.map(Declaration::Synthesizer),
         tool_decl.map(Declaration::Tool),
         agent_decl.map(Declaration::Agent),
         workflow_decl.map(Declaration::Workflow),
@@ -323,6 +333,74 @@ fn client_setting(input: &mut Input<'_>) -> PResult<ClientSettingValue> {
     }
 }
 
+fn synthesizer_decl(input: &mut Input<'_>) -> PResult<SynthesizerDecl> {
+    let mut parser = preceded(
+        trivia,
+        terminated(
+            (
+                "synthesizer",
+                lexeme(simple_identifier_raw),
+                brace_delimited(repeat::<_, _, Vec<SynthesizerSettingValue>, _, _>(
+                    1..,
+                    synthesizer_setting,
+                )),
+            )
+                .with_span()
+                .map(|((_, name, settings), span)| {
+                    let mut declaration = SynthesizerDecl {
+                        name,
+                        client: String::new(),
+                        temperature: None,
+                        max_tokens: None,
+                        span,
+                    };
+
+                    for setting in settings {
+                        match setting {
+                            SynthesizerSettingValue::Client(value) => declaration.client = value,
+                            SynthesizerSettingValue::Temperature(value) => declaration.temperature = Some(value),
+                            SynthesizerSettingValue::MaxTokens(value) => declaration.max_tokens = Some(value),
+                        }
+                    }
+
+                    declaration
+                }),
+            trivia,
+        ),
+    );
+
+    parser.parse_next(input)
+}
+
+fn synthesizer_setting(input: &mut Input<'_>) -> PResult<SynthesizerSettingValue> {
+    let key = lexeme(simple_identifier_raw).parse_next(input)?;
+    lexeme('=').parse_next(input)?;
+
+    match key.as_str() {
+        "client" => simple_identifier_raw
+            .map(SynthesizerSettingValue::Client)
+            .parse_next(input),
+        "temperature" => raw_number_expr
+            .map(|e| match e {
+                Expr::FloatLiteral(f) => SynthesizerSettingValue::Temperature(f),
+                Expr::IntLiteral(i) => SynthesizerSettingValue::Temperature(i as f64),
+                _ => unreachable!(),
+            })
+            .parse_next(input),
+        "max_tokens" => integer_literal_u32
+            .map(|e| SynthesizerSettingValue::MaxTokens(e as u64))
+            .parse_next(input),
+        _ => Err(ErrMode::from_input(input)),
+    }
+}
+
+enum ToolProperty {
+    Invoke(String),
+    Using(UsingExpr),
+    Synthesizer(String),
+    Test(TestBlock),
+}
+
 fn tool_decl(input: &mut Input<'_>) -> PResult<ToolDecl> {
     let mut parser = preceded(
         trivia,
@@ -332,15 +410,40 @@ fn tool_decl(input: &mut Input<'_>) -> PResult<ToolDecl> {
                 lexeme(simple_identifier_raw),
                 paren_delimited(opt(tool_args)),
                 opt(preceded(lexeme("->"), raw_data_type)),
-                opt(tool_body),
+                opt(brace_delimited(repeat::<_, _, Vec<ToolProperty>, _, _>(
+                    0..,
+                    tool_property_parser,
+                ))),
             )
                 .with_span()
-                .map(|((_, name, arguments, return_type, invoke_path), span)| ToolDecl {
-                    name,
-                    arguments: arguments.unwrap_or_default(),
-                    return_type,
-                    invoke_path,
-                    span,
+                .verify_map(|((_, name, arguments, return_type, opt_props), span)| {
+                    let mut decl = ToolDecl {
+                        name,
+                        arguments: arguments.unwrap_or_default(),
+                        return_type,
+                        invoke_path: None,
+                        using: None,
+                        synthesizer: None,
+                        test_block: None,
+                        span: span.clone(),
+                    };
+
+                    if let Some(props) = opt_props {
+                        for prop in props {
+                            match prop {
+                                ToolProperty::Invoke(path) => decl.invoke_path = Some(path),
+                                ToolProperty::Using(u) => decl.using = Some(u),
+                                ToolProperty::Synthesizer(s) => decl.synthesizer = Some(s),
+                                ToolProperty::Test(t) => decl.test_block = Some(t),
+                            }
+                        }
+                    }
+
+                    if decl.invoke_path.is_some() && decl.using.is_some() {
+                        return None;
+                    }
+
+                    Some(decl)
                 }),
             trivia,
         ),
@@ -353,28 +456,127 @@ fn tool_args(input: &mut Input<'_>) -> PResult<Vec<TypeField>> {
     comma_separated0(type_field).parse_next(input)
 }
 
-fn tool_body(input: &mut Input<'_>) -> PResult<String> {
-    let mut parser = preceded(
-        trivia,
-        terminated(
-            delimited(
-                '{',
-                preceded(
-                    trivia,
-                    (
-                        "invoke",
-                        lexeme(':'),
-                        cut_err(take_till(0.., '}').map(|path: &str| path.trim().to_owned())),
-                    )
-                        .map(|(_, _, path)| path),
-                ),
-                cut_err(preceded(trivia, '}')),
-            ),
-            trivia,
-        ),
-    );
+fn tool_property_parser(input: &mut Input<'_>) -> PResult<ToolProperty> {
+    let key = lexeme(simple_identifier_raw).parse_next(input)?;
 
-    parser.parse_next(input)
+    match key.as_str() {
+        "invoke" => preceded(
+            lexeme(':'),
+            // read rest of line essentially, or until newline. For backwards compat with tests:
+            take_till(0.., ('\n', '}')).map(|path: &str| ToolProperty::Invoke(path.trim().to_owned())),
+        )
+        .parse_next(input),
+        "using" => preceded(
+            lexeme(':'),
+            using_expr,
+        )
+        .map(ToolProperty::Using)
+        .parse_next(input),
+        "synthesizer" => preceded(
+            lexeme(':'),
+            lexeme(simple_identifier_raw),
+        )
+        .map(ToolProperty::Synthesizer)
+        .parse_next(input),
+        "test" => test_body.map(ToolProperty::Test).parse_next(input),
+        _ => Err(ErrMode::from_input(input)),
+    }
+}
+
+fn using_expr(input: &mut Input<'_>) -> PResult<UsingExpr> {
+    alt((
+        lexeme("fetch").map(|_| UsingExpr::Fetch),
+        lexeme("playwright").map(|_| UsingExpr::Playwright),
+        lexeme("bash").map(|_| UsingExpr::Bash),
+        preceded(lexeme("mcp"), paren_delimited(string_literal))
+            .map(UsingExpr::Mcp),
+        preceded(lexeme("baml"), paren_delimited(string_literal))
+            .map(UsingExpr::Baml),
+    ))
+    .parse_next(input)
+}
+
+fn test_body(input: &mut Input<'_>) -> PResult<TestBlock> {
+    brace_delimited(test_body_inner).parse_next(input)
+}
+
+fn test_body_inner(input: &mut Input<'_>) -> PResult<TestBlock> {
+    let mut inputs = vec![];
+    let mut expects = vec![];
+
+    // it should be input: { ... } \n expect: { ... }
+    let fields = repeat::<_, _, Vec<(String, TestBlockField)>, _, _>(
+        0..,
+        test_block_field
+    ).parse_next(input)?;
+
+    for (k, v) in fields {
+        match k.as_str() {
+            "input" => {
+                if let TestBlockField::Input(i) = v { inputs = i; }
+            }
+            "expect" => {
+                if let TestBlockField::Expect(e) = v { expects = e; }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(TestBlock { input: inputs, expect: expects })
+}
+
+enum TestBlockField {
+    Input(Vec<(String, SpannedExpr)>),
+    Expect(Vec<(String, ExpectOp)>),
+}
+
+fn test_block_field(input: &mut Input<'_>) -> PResult<(String, TestBlockField)> {
+    let key = lexeme(simple_identifier_raw).parse_next(input)?;
+    lexeme(':').parse_next(input)?;
+
+    match key.as_str() {
+        "input" => {
+            let kvs = brace_delimited(comma_separated0(test_input_kv)).parse_next(input)?;
+            Ok((key, TestBlockField::Input(kvs)))
+        }
+        "expect" => {
+            let kvs = brace_delimited(comma_separated0(test_expect_kv)).parse_next(input)?;
+            Ok((key, TestBlockField::Expect(kvs)))
+        }
+        _ => Err(ErrMode::from_input(input))
+    }
+}
+
+fn test_input_kv(input: &mut Input<'_>) -> PResult<(String, SpannedExpr)> {
+    let k = lexeme(simple_identifier_raw).parse_next(input)?;
+    let v = preceded(lexeme(':'), expr).parse_next(input)?;
+    Ok((k, v))
+}
+
+fn test_expect_kv(input: &mut Input<'_>) -> PResult<(String, ExpectOp)> {
+    let k = lexeme(simple_identifier_raw).parse_next(input)?;
+    let v = preceded(lexeme(':'), expect_op).parse_next(input)?;
+    Ok((k, v))
+}
+
+fn expect_op(input: &mut Input<'_>) -> PResult<ExpectOp> {
+    alt((
+        lexeme("!empty").map(|_| ExpectOp::NotEmpty),
+        preceded(lexeme(">="), number_f64).map(ExpectOp::Gte),
+        preceded(lexeme("<="), number_f64).map(ExpectOp::Lte),
+        preceded(lexeme(">"), number_f64).map(ExpectOp::Gt),
+        preceded(lexeme("<"), number_f64).map(ExpectOp::Lt),
+        preceded(lexeme("=="), expr).map(ExpectOp::Eq),
+        preceded(lexeme("matches"), string_literal).map(ExpectOp::Matches),
+    )).parse_next(input)
+}
+
+fn number_f64(input: &mut Input<'_>) -> PResult<f64> {
+    raw_number_expr.map(|e| match e {
+        Expr::FloatLiteral(f) => f,
+        Expr::IntLiteral(i) => i as f64,
+        _ => unreachable!(),
+    }).parse_next(input)
 }
 
 fn agent_decl(input: &mut Input<'_>) -> PResult<AgentDecl> {
@@ -405,6 +607,7 @@ fn agent_decl(input: &mut Input<'_>) -> PResult<AgentDecl> {
                             entries: Vec::new(),
                             span: span.clone(),
                         },
+                        dynamic_reasoning: std::cell::Cell::new(false),
                         span,
                     };
 
@@ -628,6 +831,7 @@ fn statement(input: &mut Input<'_>) -> PResult<Statement> {
         continue_stmt,
         break_stmt,
         assert_stmt,
+        reason_stmt,
         expression_stmt,
     ))
     .parse_next(input)
@@ -655,6 +859,74 @@ fn let_stmt(input: &mut Input<'_>) -> PResult<Statement> {
         ),
     );
 
+    parser.parse_next(input)
+}
+
+enum ReasonField {
+    Using(String),
+    Input(String),
+    Goal(String),
+    OutputType(DataType),
+    Bind(String),
+}
+
+fn reason_field(input: &mut Input<'_>) -> PResult<(String, ReasonField)> {
+    let key = lexeme(simple_identifier_raw).parse_next(input)?;
+    lexeme(':').parse_next(input)?;
+
+    match key.as_str() {
+        "using" => simple_identifier_raw.map(ReasonField::Using).parse_next(input).map(|v| (key, v)),
+        "input" => simple_identifier_raw.map(ReasonField::Input).parse_next(input).map(|v| (key, v)),
+        "goal" => string_literal.map(ReasonField::Goal).parse_next(input).map(|v| (key, v)),
+        "output_type" => raw_data_type.map(ReasonField::OutputType).parse_next(input).map(|v| (key, v)),
+        "bind" => simple_identifier_raw.map(ReasonField::Bind).parse_next(input).map(|v| (key, v)),
+        _ => Err(ErrMode::from_input(input)),
+    }
+}
+
+fn reason_stmt(input: &mut Input<'_>) -> PResult<Statement> {
+    let mut parser = preceded(
+        trivia,
+        terminated(
+            (
+                "reason",
+                brace_delimited(repeat::<_, _, Vec<(String, ReasonField)>, _, _>(
+                    1..,
+                    reason_field
+                ))
+            ).with_span().verify_map(|((_, fields), span)| {
+                let mut using_agent = None;
+                let mut input_var = None;
+                let mut goal = None;
+                let mut output_type = None;
+                let mut bind = None;
+
+                for (_k, v) in fields {
+                    match v {
+                        ReasonField::Using(u) => using_agent = Some(u),
+                        ReasonField::Input(i) => input_var = Some(i),
+                        ReasonField::Goal(g) => goal = Some(g),
+                        ReasonField::OutputType(t) => output_type = Some(t),
+                        ReasonField::Bind(b) => bind = Some(b),
+                    }
+                }
+
+                if using_agent.is_none() || input_var.is_none() || goal.is_none() || output_type.is_none() || bind.is_none() {
+                    return None;
+                }
+
+                Some(Statement::Reason {
+                    using_agent: using_agent.unwrap(),
+                    input: input_var.unwrap(),
+                    goal: goal.unwrap(),
+                    output_type: output_type.unwrap(),
+                    bind: bind.unwrap(),
+                    span,
+                })
+            }),
+            trivia
+        )
+    );
     parser.parse_next(input)
 }
 
@@ -1476,5 +1748,93 @@ mod tests {
         let source = r#"type Overflow { value: float @min(9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999.0) }"#;
         let result = parse_document(source);
         assert!(result.is_err(), "overflow float must produce an error, not panic");
+    }
+
+    #[test]
+    fn test_parse_tool_with_using_fetch() {
+        let src = r#"
+tool WebSearch(query: string) -> SearchResult {
+    using: fetch
+}
+"#;
+        let doc = super::parse(src).unwrap();
+        assert_eq!(doc.tools[0].using, Some(super::UsingExpr::Fetch));
+        assert!(doc.tools[0].invoke_path.is_none());
+    }
+
+    #[test]
+    fn test_parse_tool_with_using_mcp() {
+        let src = r#"
+tool BraveSearch(query: string) -> SearchResult {
+    using: mcp("brave-search")
+}
+"#;
+        let doc = super::parse(src).unwrap();
+        assert_eq!(doc.tools[0].using, Some(super::UsingExpr::Mcp("brave-search".to_string())));
+    }
+
+    #[test]
+    fn test_parse_tool_with_test_block() {
+        let src = r#"
+tool WebSearch(query: string) -> SearchResult {
+    using: fetch
+    test {
+        input:  { query: "rust language" }
+        expect: { url: !empty }
+    }
+}
+"#;
+        let doc = super::parse(src).unwrap();
+        assert!(doc.tools[0].test_block.is_some());
+        let tb = doc.tools[0].test_block.as_ref().unwrap();
+        assert_eq!(tb.expect[0].1, super::ExpectOp::NotEmpty);
+    }
+
+    #[test]
+    fn test_parse_synthesizer_decl() {
+        let src = r#"
+client MyClaude {
+    provider = "anthropic"
+    model = "claude-sonnet-4-6"
+}
+synthesizer DefaultSynth {
+    client = MyClaude
+    temperature = 0.1
+}
+"#;
+        let doc = super::parse(src).unwrap();
+        assert_eq!(doc.synthesizers[0].name, "DefaultSynth");
+        assert_eq!(doc.synthesizers[0].client, "MyClaude");
+    }
+
+    #[test]
+    fn test_parse_reason_stmt() {
+        let src = r#"
+workflow ResearchAndDecide(query: string) -> Decision {
+    let raw: SearchResult = execute Searcher.run(query: query)
+    reason {
+        using:       Writer
+        input:       raw
+        goal:        "Analyze the results"
+        output_type: Decision
+        bind:        decision
+    }
+    return decision
+}
+"#;
+        let doc = super::parse(src).unwrap();
+        let stmts = &doc.workflows[0].body.statements;
+        assert!(stmts.iter().any(|s| matches!(s, super::Statement::Reason { .. })));
+    }
+
+    #[test]
+    fn test_parse_error_tool_with_both_invoke_and_using() {
+        let src = r#"
+tool WebSearch(query: string) -> SearchResult {
+    invoke: module("scripts/search").function("run")
+    using: fetch
+}
+"#;
+        assert!(super::parse(src).is_err());
     }
 }

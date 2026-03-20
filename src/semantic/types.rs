@@ -330,6 +330,7 @@ fn validate_statement_references_collecting(
             validate_spanned_expr_references_collecting(condition, symbols, errors);
         }
         Statement::Continue(_) | Statement::Break(_) => {}
+        Statement::Reason { .. } => {}
     }
 }
 
@@ -563,6 +564,7 @@ fn validate_statement_types_collecting(
         } => validate_assert_statement_collecting(condition, span, context.symbols, env, errors),
         Statement::Continue(span) => validate_control_flow_collecting("continue", span, context.flow, errors),
         Statement::Break(span) => validate_control_flow_collecting("break", span, context.flow, errors),
+        Statement::Reason { .. } => {}
     }
 }
 

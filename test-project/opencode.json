@@ -1,19 +1,23 @@
 {
-  "agents": {
-    "coder": {
-      "model": "claude-4-sonnet"
-    }
-  },
-  "contextPaths": [
+  "instructions": [
     "generated/claw-context.md"
   ],
-  "mcpServers": {
+  "mcp": {
     "claw-tools": {
-      "args": [
+      "command": [
+        "/opt/homebrew/bin/node",
         "generated/mcp-server.js"
       ],
-      "command": "node",
-      "type": "stdio"
+      "type": "local"
+    }
+  },
+  "model": "ollama/qwen2.5:14b",
+  "provider": {
+    "ollama": {
+      "api": "http://localhost:11434/v1",
+      "models": {
+        "qwen2.5:14b": {}
+      }
     }
   }
 }

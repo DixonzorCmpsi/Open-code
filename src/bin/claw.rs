@@ -1,17 +1,15 @@
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use clawc::ast::Document;
 use clawc::codegen;
 use clawc::config::{BuildLanguage, ClawConfig};
-use clawc::errors::{CompilerError, CompilerResult};
+use clawc::errors::CompilerError;
 use clawc::{parser, semantic};
-use notify::{recommended_watcher, Event, RecursiveMode, Watcher};
+use notify::{recommended_watcher, RecursiveMode, Watcher};
 use thiserror::Error;
 
 #[derive(Debug, Parser)]
@@ -27,6 +25,27 @@ enum Commands {
     Build(BuildArgs),
     Dev(DevArgs),
     Test(TestArgs),
+    Run(RunArgs),
+    Chat(ChatArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct RunArgs {
+    /// Workflow name to execute
+    workflow: String,
+    /// Arguments in key=value format
+    #[arg(long = "arg", value_name = "KEY=VALUE")]
+    args: Vec<String>,
+    /// Path to runtime.js (defaults to generated/runtime.js)
+    #[arg(long)]
+    runtime: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+struct ChatArgs {
+    /// Path to runtime.js (defaults to generated/runtime.js)
+    #[arg(long)]
+    runtime: Option<PathBuf>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -128,12 +147,12 @@ fn run(cli: Cli) -> Result<(), ClawCliError> {
         Commands::Build(args) => run_build(args),
         Commands::Dev(args) => run_dev(args),
         Commands::Test(args) => run_test(args),
+        Commands::Run(args) => run_run(args),
+        Commands::Chat(args) => run_chat(args),
     }
 }
 
 fn run_init(args: InitArgs) -> Result<(), ClawCliError> {
-    check_opencode_installed();
-
     if args.path.exists() && !args.force {
         return Err(ClawCliError::Message(format!(
             "{} already exists (use --force to overwrite)",
@@ -192,7 +211,8 @@ workflow FindInfo(topic: string) -> SearchResult {
   "devDependencies": {
     "@claw/cli": "latest"
   },
-  "dependencies": {
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.12.0"
   }
 }"#;
@@ -216,7 +236,7 @@ export async function run(query) {
     fs::write("scripts/search.js", stub_js).map_err(|e| ClawCliError::Message(format!("failed to create scripts/search.js: {e}")))?;
 
     println!("✓ Created example.claw\n✓ Created claw.json\n✓ Created package.json\n✓ Created scripts/search.js (stub)\n✓ Created .gitignore\n");
-    println!("Next steps:\n  1. Set your API key:   export ANTHROPIC_API_KEY=sk-ant-...\n  2. Install deps:       npm install\n  3. Compile:            claw build\n  4. Run:                opencode /FindInfo \"quantum computing\"\n\nTip: Run `claw dev` to watch for changes and auto-rebuild.");
+    println!("Next steps:\n  1. Set your API key:   export ANTHROPIC_API_KEY=sk-ant-...\n  2. Compile:            claw build\n  3. Run:                claw run FindInfo --arg topic=\"quantum computing\"\n\nNo npm install required for claw run (Node.js >= 18 only).\nFor OpenCode IDE integration: npm install && opencode\n\nTip: Run `claw dev` to watch for changes and auto-rebuild.");
     
     Ok(())
 }
@@ -254,10 +274,44 @@ fn run_compile_once(source_path: &Path, lang: BuildLanguage) -> Result<(), ClawC
 
     let project_root = source_path.parent().unwrap_or(Path::new("."));
     
+    let source_name = source_path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown.claw");
+
     match lang {
         BuildLanguage::Opencode => {
             codegen::generate_opencode(&document, project_root).map_err(|e| ClawCliError::Message(e.to_string()))?;
             codegen::generate_mcp(&document, project_root).map_err(|e| ClawCliError::Message(e.to_string()))?;
+            codegen::generate_runtime(&document, project_root).map_err(|e| ClawCliError::Message(e.to_string()))?;
+
+            // Stage 1: emit .clawa artifact (synthesis pipeline)
+            let has_synthesis = document.tools.iter().any(|t| t.using.is_some());
+            if has_synthesis {
+                codegen::generate_artifact(&document, project_root, source_name)
+                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
+                codegen::generate_synth_runner(&document, project_root)
+                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
+                codegen::generate_ts_types(&document, project_root)
+                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
+                codegen::generate_ts_workflows(&document, project_root)
+                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
+                codegen::generate_ts_tests(&document, project_root)
+                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
+                println!("  Synthesis pipeline: generated/artifact.clawa.json → run `claw synthesize` to invoke LLM");
+            }
+
+            // Generate BAML source files only if any tool uses invoke: baml(...)
+            let baml_output = codegen::generate_baml(&document).map_err(|e| ClawCliError::Message(e.to_string()))?;
+            let has_baml = !baml_output.functions.is_empty();
+            if has_baml {
+                let baml_dir = project_root.join("generated").join("baml_src");
+                fs::create_dir_all(&baml_dir).map_err(|e| ClawCliError::Message(format!("failed to create baml_src/: {e}")))?;
+                fs::write(baml_dir.join("generators.baml"), baml_output.generators).map_err(|e| ClawCliError::Message(format!("failed to write generators.baml: {e}")))?;
+                fs::write(baml_dir.join("clients.baml"), baml_output.clients).map_err(|e| ClawCliError::Message(format!("failed to write clients.baml: {e}")))?;
+                fs::write(baml_dir.join("types.baml"), baml_output.types).map_err(|e| ClawCliError::Message(format!("failed to write types.baml: {e}")))?;
+                fs::write(baml_dir.join("functions.baml"), baml_output.functions).map_err(|e| ClawCliError::Message(format!("failed to write functions.baml: {e}")))?;
+                println!("  BAML tools detected. Run: npx @boundaryml/baml-cli generate --from generated/baml_src");
+            }
         }
         BuildLanguage::Ts => {
             let output = codegen::generate_ts(&document).map_err(|e| ClawCliError::Message(e.to_string()))?;
@@ -273,7 +327,19 @@ fn run_compile_once(source_path: &Path, lang: BuildLanguage) -> Result<(), ClawC
         }
     }
     
-    println!("✓ Built {}", source_path.display());
+    if matches!(lang, BuildLanguage::Opencode) {
+        println!("✓ Built {}", source_path.display());
+        for wf in &document.workflows {
+            let arg_names: Vec<_> = wf.arguments.iter().map(|a| format!("--arg {}=<{}>", a.name, a.name)).collect();
+            if arg_names.is_empty() {
+                println!("  claw run {}", wf.name);
+            } else {
+                println!("  claw run {} {}", wf.name, arg_names.join(" "));
+            }
+        }
+    } else {
+        println!("✓ Built {}", source_path.display());
+    }
     Ok(())
 }
 
@@ -355,12 +421,131 @@ fn run_test(args: TestArgs) -> Result<(), ClawCliError> {
     Ok(())
 }
 
-fn check_opencode_installed() {
-    let output = Command::new("opencode").arg("--version").output();
-    if output.is_err() {
-        println!("⚠  OpenCode not found. Install it to run compiled workflows:");
-        println!("   curl -fsSL https://opencode.ai/install | bash\n");
+fn find_runtime_js(override_path: Option<PathBuf>) -> Result<PathBuf, ClawCliError> {
+    if let Some(p) = override_path {
+        if p.exists() {
+            return Ok(p);
+        }
+        return Err(ClawCliError::Message(format!("runtime not found: {}", p.display())));
     }
+    let candidate = Path::new("generated").join("runtime.js");
+    if candidate.exists() {
+        return Ok(candidate);
+    }
+    Err(ClawCliError::Message(
+        "generated/runtime.js not found — run `claw build` first".to_owned(),
+    ))
+}
+
+fn check_node_version() -> Result<(), ClawCliError> {
+    let output = Command::new("node").arg("--version").output()
+        .map_err(|_| ClawCliError::Message("E-RT02: Node.js not found — install Node.js >= 18 from https://nodejs.org".to_owned()))?;
+    let version_str = String::from_utf8_lossy(&output.stdout);
+    // Parse vMAJOR.minor.patch
+    let major: u32 = version_str.trim_start_matches('v')
+        .split('.')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if major < 18 {
+        return Err(ClawCliError::Message(format!(
+            "E-RT01: Node.js >= 18 required (found {}) — upgrade at https://nodejs.org",
+            version_str.trim()
+        )));
+    }
+    Ok(())
+}
+
+fn run_run(args: RunArgs) -> Result<(), ClawCliError> {
+    check_node_version()?;
+    let runtime = find_runtime_js(args.runtime)?;
+
+    // Build argv: node runtime.js <workflow> [--arg key=value ...]
+    let mut node_args: Vec<String> = vec![runtime.to_string_lossy().into_owned(), args.workflow];
+    for kv in &args.args {
+        node_args.push("--arg".to_owned());
+        node_args.push(kv.clone());
+    }
+
+    let status = Command::new("node")
+        .args(&node_args)
+        .status()
+        .map_err(|e| ClawCliError::Message(format!("failed to spawn node: {e}")))?;
+
+    if !status.success() {
+        let code = status.code().unwrap_or(1);
+        std::process::exit(code);
+    }
+    Ok(())
+}
+
+fn run_chat(args: ChatArgs) -> Result<(), ClawCliError> {
+    check_node_version()?;
+    let runtime = find_runtime_js(args.runtime)?;
+
+    // Get list of workflows
+    let list_output = Command::new("node")
+        .arg(&runtime)
+        .arg("--list")
+        .output()
+        .map_err(|e| ClawCliError::Message(format!("failed to spawn node: {e}")))?;
+
+    let list_str = String::from_utf8_lossy(&list_output.stdout);
+    let workflows: Vec<&str> = list_str.lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+
+    if workflows.is_empty() {
+        return Err(ClawCliError::Message("no workflows found in runtime.js".to_owned()));
+    }
+
+    println!("Claw Chat — interactive workflow runner");
+    println!("Available workflows:");
+    for wf in &workflows {
+        println!("  {wf}");
+    }
+    println!();
+
+    loop {
+        print!("workflow> ");
+        use std::io::Write;
+        std::io::stdout().flush().ok();
+
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line).is_err() || line.trim().is_empty() {
+            break;
+        }
+        let workflow_name = line.trim().to_owned();
+        if workflow_name == "exit" || workflow_name == "quit" {
+            break;
+        }
+
+        // Collect key=value args
+        print!("args (key=value, space-separated, or blank)> ");
+        std::io::stdout().flush().ok();
+        let mut arg_line = String::new();
+        std::io::stdin().read_line(&mut arg_line).ok();
+
+        let mut node_args: Vec<String> = vec![
+            runtime.to_string_lossy().into_owned(),
+            workflow_name,
+        ];
+        for token in arg_line.split_whitespace() {
+            node_args.push("--arg".to_owned());
+            node_args.push(token.to_owned());
+        }
+
+        let status = Command::new("node")
+            .args(&node_args)
+            .status()
+            .map_err(|e| ClawCliError::Message(format!("failed to spawn node: {e}")))?;
+
+        if !status.success() {
+            eprintln!("workflow exited with code {}", status.code().unwrap_or(1));
+        }
+        println!();
+    }
+    Ok(())
 }
 
 fn format_compiler_error(path: &Path, source: &str, error: &CompilerError) -> String {

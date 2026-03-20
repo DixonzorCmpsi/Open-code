@@ -112,6 +112,9 @@ Document {
             invoke_path: Some(
                 "module(\"scripts.analysis\").function(\"get_sentiment\")",
             ),
+            using: None,
+            synthesizer: None,
+            test_block: None,
             span: 439..590,
         },
     ],
@@ -147,6 +150,9 @@ Document {
                     },
                 ],
                 span: 781..871,
+            },
+            dynamic_reasoning: Cell {
+                value: false,
             },
             span: 590..899,
         },
@@ -284,5 +290,6 @@ Document {
             span: 1338..1418,
         },
     ],
+    synthesizers: [],
     span: 13..1418,
 }

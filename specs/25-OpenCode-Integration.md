@@ -137,7 +137,7 @@ All `tool` blocks are compiled into a single MCP server file. See `specs/26-MCP-
 
 Claw implements named multi-agent orchestration via two generated artifacts:
 
-1. **An `agent_<Name>` MCP tool** in `generated/mcp-server.js` — when the coder agent calls `agent_Researcher`, it spawns a child `opencode` process non-interactively with the Researcher's system prompt and model injected.
+1. **An `agent_<Name>` MCP tool** in `generated/mcp-server.js` — when the coder agent calls `agent_Researcher`, the MCP tool handler **calls the LLM provider API directly** (using the Anthropic SDK, Ollama, or other configured provider) with the agent's declared `system_prompt`, `tools`, and `settings`. It manages the tool-call loop internally and returns the typed result. It does **NOT** spawn a child `opencode` process.
 2. **A section in `generated/claw-context.md`** — documents the agent's role, tools, and constraints so the coder agent understands when and how to invoke it.
 
 **Claw source:**
@@ -167,20 +167,48 @@ agent Researcher {
   }
 }
 
-async function handleAgentResearcher(args) {
+// The agent handler calls the LLM provider API directly — no child process spawning.
+// It manages the full tool-call loop internally and validates the return type.
+async function handleagent_Researcher(args) {
   const { task } = args;
-  const systemPrompt = "You form exact hypotheses before executing tools.";
-  const result = await runOpenCodeAgent({
-    model: "claude-4-sonnet",
-    systemPrompt,
-    task,
-    maxSteps: 5
-  });
-  return { content: [{ type: "text", text: result }] };
-}
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+  const client = new Anthropic();  // reads ANTHROPIC_API_KEY from env
 
-// runOpenCodeAgent spawns: opencode -p "<task>" with system prompt injected via contextPaths
+  const messages = [{ role: "user", content: task }];
+  const tools = [WEBSEARCH_TOOL_SCHEMA, READFILE_TOOL_SCHEMA];
+
+  // Tool-call loop: call LLM, dispatch tool calls, repeat until end_turn
+  while (true) {
+    const response = await client.messages.create({
+      model: "claude-4-sonnet",
+      system: "You form exact hypotheses before executing tools.",
+      messages,
+      tools,
+      max_tokens: 4096,
+    });
+
+    if (response.stop_reason === "end_turn") {
+      const text = response.content.find(b => b.type === "text")?.text ?? "";
+      // Parse and validate against declared return type (if any)
+      return { content: [{ type: "text", text }] };
+    }
+
+    // Handle tool calls
+    const toolUseBlocks = response.content.filter(b => b.type === "tool_use");
+    messages.push({ role: "assistant", content: response.content });
+    const toolResults = [];
+    for (const toolUse of toolUseBlocks) {
+      const handler = HANDLERS[toolUse.name];
+      const result = handler ? await handler(toolUse.input) : { error: `Unknown tool: ${toolUse.name}` };
+      toolResults.push({ type: "tool_result", tool_use_id: toolUse.id,
+                         content: JSON.stringify(result) });
+    }
+    messages.push({ role: "user", content: toolResults });
+  }
+}
 ```
+
+See `specs/26-MCP-Server-Generation.md §2.5` for the full agent handler generation pattern, including provider routing (Anthropic vs. Ollama) and return type validation.
 
 **Emitted in `generated/claw-context.md` (agent documentation section):**
 ```markdown
@@ -194,12 +222,13 @@ async function handleAgentResearcher(args) {
 
 **Rules:**
 - Each `agent` block generates one `agent_<Name>` MCP tool in `mcp-server.js`.
-- The agent runner uses `opencode -p "<task>"` non-interactively (auto-approves permissions).
-- `client` resolves to an OpenCode model ID (e.g., `claude-4-sonnet`).
-- `system_prompt` is injected via a temp context file passed to the child opencode process.
-- `settings.max_steps` maps to a step-limit instruction in the system prompt.
-- `extends` is resolved by the compiler before codegen; the child agent's final merged properties are what get emitted.
-- `tools +=` is resolved at compile time; the final merged tool list appears in the agent description.
+- The agent handler calls the LLM provider API **directly** — it MUST NOT spawn a child `opencode` process.
+- `client` resolves to the provider SDK and model (Anthropic SDK for `provider = "anthropic"`, Ollama HTTP for `provider = "local"`).
+- `system_prompt` is passed as the `system` parameter in the LLM API call.
+- `settings.max_steps` is enforced as a loop counter in the tool-call loop (abort with error after N steps).
+- `extends` is resolved by the compiler before codegen; the agent's final merged properties are what get emitted.
+- `tools +=` is resolved at compile time; the final merged tool list is what gets registered in the tool-call loop.
+- Return type validation (`require_type`) runs after `end_turn` — parse the LLM text as JSON, validate against the declared schema, return MCP error if invalid.
 
 ### 2.4 `workflow` block → `.opencode/commands/{Name}.md`
 
@@ -298,31 +327,40 @@ This prevents `claw build` from destroying user-customized OpenCode settings.
 
 ```json
 {
-  "agents": {
-    "coder": {
-      "model": "claude-4-sonnet"
+  "model": "ollama/qwen2.5:14b",
+  "provider": {
+    "ollama": {
+      "api": "http://localhost:11434/v1",
+      "models": { "qwen2.5:14b": {} }
     }
   },
-  "mcpServers": {
+  "mcp": {
     "claw-tools": {
-      "command": "node",
-      "args": ["generated/mcp-server.js"],
-      "type": "stdio"
+      "command": ["/opt/homebrew/bin/node", "generated/mcp-server.js"],
+      "type": "local"
     }
   },
-  "contextPaths": [
+  "instructions": [
     "generated/claw-context.md"
   ]
 }
 ```
 
-**Fields (sourced from `opencode-schema.json` in the OpenCode repository):**
+**Fields (verified against OpenCode 1.2.27 runtime behaviour):**
 
 | Field | Source | Description |
 | ----- | ------ | ----------- |
-| `agents.coder.model` | First `client` block's `model` field | Model ID for the coder agent. Must be a valid OpenCode model ID (e.g., `claude-4-sonnet`, `gpt-4o`). |
-| `mcpServers.claw-tools` | All `tool` blocks | Starts `generated/mcp-server.js` as a stdio child process. Key must be `mcpServers`, type must be `"stdio"`. |
-| `contextPaths` | Always present | Array of paths OpenCode injects as project context. Points to `generated/claw-context.md`. If a project `AGENTS.md` exists, it is prepended: `["AGENTS.md", "generated/claw-context.md"]`. |
+| `model` | First `client` block | Top-level model ID. For `provider = "local"`: `"ollama/<model-id>"`. For cloud: model ID as-is (e.g., `"claude-4-sonnet"`). |
+| `provider.ollama` | First `client` block when `provider = "local"` | Ollama connection config. `api` defaults to `http://localhost:11434/v1`. `models` registers the model. Omitted for cloud providers. |
+| `mcp.claw-tools` | All `tool` + `agent` blocks | Starts `generated/mcp-server.js` as a local child process. Key is `mcp` (NOT `mcpServers`). Type is `"local"` (NOT `"stdio"`). Command is an array: `[node-binary-path, "generated/mcp-server.js"]`. |
+| `instructions` | Always present | Array of paths OpenCode injects as context. Points to `generated/claw-context.md`. Field is `instructions` (NOT `contextPaths`). |
+
+**⚠ Common mistakes that cause "Unrecognized keys" rejection by OpenCode 1.2.27:**
+
+- Using `mcpServers` instead of `mcp`
+- Using `type: "stdio"` instead of `type: "local"`
+- Using `agents.coder.model` instead of top-level `model`
+- Using `contextPaths` instead of `instructions`
 
 **What is NOT emitted (and why):**
 
@@ -440,11 +478,11 @@ Unchanged from `specs/07 §5`:
 opencode /AnalyzeCompetitors "Apple, Microsoft, Google"
 ```
 
-1. OpenCode loads `opencode.json` → reads `agents.coder.model`, starts `mcpServers.claw-tools` subprocess, loads `contextPaths`
-2. OpenCode loads `.opencode/commands/AnalyzeCompetitors.md`, substitutes `$COMPANIES` with the user's argument
+1. OpenCode loads `opencode.json` → reads top-level `model`, starts `mcp.claw-tools` subprocess, loads `instructions`
+2. OpenCode loads `.opencode/command/AnalyzeCompetitors.md`, substitutes `$COMPANIES` with the user's argument
 3. The `claw-tools` MCP server (`node generated/mcp-server.js`) is now running and ready
 4. The coder agent executes, guided by `generated/claw-context.md`; it calls `agent_Researcher` and `agent_SeniorResearcher` as MCP tools
-5. Each agent runner tool spawns `opencode -p "<task>"` non-interactively for that agent's work
+5. Each `agent_<Name>` MCP handler calls the LLM provider API **directly** (Anthropic SDK / Ollama), runs the tool-call loop internally, and returns the typed result — no child `opencode` process is spawned
 6. Output is streamed back to the terminal in real time
 
 ### 8.2 Programmatic Use (via TypeScript SDK)

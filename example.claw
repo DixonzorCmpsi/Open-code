@@ -13,16 +13,16 @@ tool WebSearch(query: string) -> SearchResult {
 
 client LocalQwen {
     provider = "local"
-    model = "local.qwen2.5-coder:7b"
+    model = "local.qwen2.5:14b"
 }
 
 agent Researcher {
     client = LocalQwen
-    system_prompt = "You are a precise researcher. Use the WebSearch tool to find information. Always return a SearchResult with url, snippet, and confidence_score."
+    system_prompt = "You are a data retrieval agent. Call WebSearch with the user query. When you receive the tool result, respond ONLY with the raw JSON object from the tool result. Do not add any text, explanation, or formatting — output ONLY valid JSON."
     tools = [WebSearch]
     settings = {
         max_steps: 5,
-        temperature: 0.1
+        temperature: 0.0
     }
 }
 

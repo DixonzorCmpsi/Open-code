@@ -18,6 +18,7 @@ pub struct Document {
     pub listeners: Vec<ListenerDecl>,
     pub tests: Vec<TestDecl>,
     pub mocks: Vec<MockDecl>,
+    pub synthesizers: Vec<SynthesizerDecl>,
     pub span: Span,
 }
 
@@ -83,12 +84,50 @@ pub struct ClientDecl {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SynthesizerDecl {
+    pub name: String,
+    pub client: String,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<u64>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolDecl {
     pub name: String,
     pub arguments: Vec<TypeField>,
     pub return_type: Option<DataType>,
     pub invoke_path: Option<String>,
+    pub using: Option<UsingExpr>,
+    pub synthesizer: Option<String>,
+    pub test_block: Option<TestBlock>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum UsingExpr {
+    Fetch,
+    Playwright,
+    Bash,
+    Mcp(String),
+    Baml(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TestBlock {
+    pub input: Vec<(String, SpannedExpr)>,
+    pub expect: Vec<(String, ExpectOp)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum ExpectOp {
+    NotEmpty,
+    Gt(f64),
+    Lt(f64),
+    Gte(f64),
+    Lte(f64),
+    Eq(SpannedExpr),
+    Matches(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -99,6 +138,8 @@ pub struct AgentDecl {
     pub system_prompt: Option<String>,
     pub tools: Vec<String>,
     pub settings: AgentSettings,
+    #[serde(default)]
+    pub dynamic_reasoning: std::cell::Cell<bool>,
     pub span: Span,
 }
 
@@ -145,6 +186,14 @@ pub enum ElseBranch {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Statement {
+    Reason {
+        using_agent: String,
+        input: String,
+        goal: String,
+        output_type: DataType,
+        bind: String,
+        span: Span,
+    },
     LetDecl {
         name: String,
         explicit_type: Option<DataType>,
@@ -302,12 +351,14 @@ mod tests {
                     entries: Vec::new(),
                     span: span.clone(),
                 },
+                dynamic_reasoning: std::cell::Cell::new(false),
                 span: span.clone(),
             }],
             workflows: Vec::new(),
             listeners: Vec::new(),
             tests: Vec::new(),
             mocks: Vec::new(),
+            synthesizers: Vec::new(),
             span: span.clone(),
         };
 

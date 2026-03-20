@@ -32,23 +32,28 @@ echo "Validating opencode.json..."
 node -e "
 const fs = require('fs');
 const config = JSON.parse(fs.readFileSync('opencode.json', 'utf8'));
-if (!config.agents || !config.agents.coder || config.agents.coder.model !== 'claude-4-sonnet') {
-    console.error('Invalid agents config', config.agents);
+if (!config.model || config.model !== 'claude-4-sonnet') {
+    console.error('Invalid model config', config.model);
     process.exit(1);
 }
-if (!config.mcpServers || !config.mcpServers['claw-tools'] || config.mcpServers['claw-tools'].type !== 'stdio') {
-    console.error('Invalid mcpServers config', config.mcpServers);
+if (!config.mcp || !config.mcp['claw-tools'] || config.mcp['claw-tools'].type !== 'local') {
+    console.error('Invalid mcp config', config.mcp);
     process.exit(1);
 }
-if (!config.contextPaths || !config.contextPaths.includes('generated/claw-context.md')) {
-    console.error('Invalid contextPaths', config.contextPaths);
+if (!Array.isArray(config.mcp['claw-tools'].command) || !config.mcp['claw-tools'].command[0].endsWith('node')) {
+    console.error('Invalid mcp command format', config.mcp['claw-tools'].command);
+    process.exit(1);
+}
+if (!config.instructions || !config.instructions.includes('generated/claw-context.md')) {
+    console.error('Invalid instructions', config.instructions);
     process.exit(1);
 }
 "
 
-echo "Validating .opencode/commands/FindInfo.md..."
-grep "\$TOPIC" .opencode/commands/FindInfo.md || (echo "Missing \$TOPIC in command file" && exit 1)
-grep "agent_Researcher" .opencode/commands/FindInfo.md || (echo "Missing agent_Researcher in command file" && exit 1)
+# 6. Validate Command Markdown
+echo "Validating .opencode/command/FindInfo.md..."
+grep "\$TOPIC" .opencode/command/FindInfo.md || (echo "Missing \$TOPIC in command file" && exit 1)
+grep "agent_Researcher" .opencode/command/FindInfo.md || (echo "Missing agent_Researcher in command file" && exit 1)
 
 echo "Validating generated/mcp-server.js..."
 [ -f "generated/mcp-server.js" ] || (echo "Missing mcp-server.js" && exit 1)

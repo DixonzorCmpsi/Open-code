@@ -6,13 +6,15 @@ This document defines the strict operational rules for any AI Agent (Antigravity
 
 ## 0. Product Vision — What We Are Building
 
-**Claw is N8N as code.** It is a statically-typed, deterministic orchestration language that compiles `.claw` source files into native OpenCode configuration. Think of it as the relationship between SQL and a database engine — Claw is the high-level typed language; OpenCode is the execution runtime that runs it.
+**Claw is N8N as code.** It is a statically-typed, deterministic orchestration language with its own runtime. A developer writes `.claw` source once. The compiler verifies types, validates agent boundaries, and emits `generated/runtime.js` — a self-contained workflow executor that calls LLM providers directly using Node.js built-in `fetch()`. No OpenCode required for execution.
+
+OpenCode is supported as an **optional IDE backend**: `claw build` also emits `opencode.json` and `mcp-server.js` for users who want interactive chat development in the OpenCode IDE. It is an enhancement, not the execution engine.
 
 ### The Core Problem
 
 OpenCode is powerful: it supports 75+ LLM providers, has an MCP tool protocol, supports named agents and workflow commands, and can be driven entirely from the CLI. But raw OpenCode configuration is hand-written JSON and markdown — untyped, unverified, and not composable. There is no compile-time guarantee that agent A's output matches agent B's input. There is no control flow, no typed loops, no static analysis.
 
-Claw fixes this. A developer writes `.claw` source once. `clawc` verifies types, validates agent boundaries, and emits the complete OpenCode config bundle. OpenCode executes it.
+Claw fixes this. A developer writes `.claw` source once. `clawc` verifies types, validates agent boundaries, and emits a self-contained execution artifact (`generated/runtime.js`). `claw run` executes it directly — no OpenCode, no npm install, no TUI required.
 
 ### The Canonical Use Case
 
@@ -20,7 +22,7 @@ The prototype use case that defines this product:
 
 > A workflow that goes to GitHub, opens VS Code (installing it first if it is not present), implements a list of specified features via a coding agent, pulls credentials from `.env` for any CLI authentication steps, commits each feature, and opens a pull request.
 
-Written as a `.claw` program, compiled with `claw build`, and executed with a single `opencode /AddFeaturesToRepo` command.
+Written as a `.claw` program, compiled with `claw build`, and executed with `claw run AddFeaturesToRepo --arg features=features.md` — or interactively via `claw chat`.
 
 ### Other Core Use Cases
 
@@ -192,19 +194,21 @@ Enforce DSL and architectural boundaries by respecting directory ownership. **Re
 
 ### 4.3 OpenCode Config Layer
 
-- **Merge Strategy**: `clawc build --lang opencode` MUST use a merge strategy on `opencode.json` — never overwrite. Read existing file, update only Claw-owned fields (`agents.coder.model`, `mcpServers.claw-tools`, `contextPaths`), write back. Preserve all user fields. See `specs/25-OpenCode-Integration.md §3`.
+- **Merge Strategy**: `clawc build --lang opencode` MUST use a merge strategy on `opencode.json` — never overwrite. Read existing file, update only Claw-owned fields (`model`, `mcp.claw-tools`, `instructions`, `provider`), write back. Preserve all user fields. See `specs/25-OpenCode-Integration.md §3`.
 
-- **Correct `opencode.json` field names** (sourced from `opencode/opencode-schema.json`):
-  - Model goes under `agents.coder.model` — NOT a top-level `model` field.
-  - MCP server goes under `mcpServers` — NOT `mcp`. Type is `"stdio"` — NOT `"local"`.
-  - Context file goes in `contextPaths` array — NOT `instructions`. Field `instructions` does not exist.
+- **Correct `opencode.json` field names** (verified against OpenCode 1.2.27 Zod schema):
+  - Model goes at top-level `model` — NOT `agents.coder.model`. For local: `"ollama/<id>"`.
+  - Local models also need a `provider.ollama` block with `api` + `models` entries.
+  - MCP server goes under `mcp` — NOT `mcpServers`. Type is `"local"` — NOT `"stdio"`.
+  - Context file goes in `instructions` array — NOT `contextPaths`.
   - API keys are NOT emitted — OpenCode reads `ANTHROPIC_API_KEY` etc. from the environment automatically.
+  - **DO NOT** use `agents`, `mcpServers`, `contextPaths` — OpenCode rejects these with "Unrecognized keys" error.
 
 - **No `.opencode/agents/*.md`**: OpenCode does NOT support custom agent markdown files. Named agents from `.claw` are implemented as `agent_<Name>` MCP runner tools in `generated/mcp-server.js`. See `specs/25-OpenCode-Integration.md §2.3`.
 
 - **`retries` Warning**: `client` blocks with `retries = N` and `--lang opencode` MUST emit a compiler warning and NOT emit `retries` in `opencode.json`. There is no OpenCode equivalent. See `specs/25-OpenCode-Integration.md §2.1`.
 
-- **Context Document**: The project context file is `generated/claw-context.md` (NOT `AGENTS.md`). Referenced via `"contextPaths": ["generated/claw-context.md"]` in `opencode.json`. See `specs/25-OpenCode-Integration.md §4`.
+- **Context Document**: The project context file is `generated/claw-context.md` (NOT `AGENTS.md`). Referenced via `"instructions": ["generated/claw-context.md"]` in `opencode.json`. See `specs/25-OpenCode-Integration.md §4`.
 
 - **Command argument variables**: OpenCode command files use `$UPPERCASE_NAME` substitution (regex `\$([A-Z][A-Z0-9_]*)`). Workflow parameter `topic` → `$TOPIC`. NOT `$arguments`.
 
@@ -376,11 +380,111 @@ Refer to `specs/` for detailed architectural requirements:
 - `specs/17-Phase6-Test-Runner-And-Mocks.md` — claw test command; §7 is the active execution model
 - `specs/18-BAML-Integration-Layer.md §1-4` — BAML codegen emitter (§5 gateway integration superseded)
 - `specs/19-Binary-Distribution.md` — NPM wrapper, binary distribution, proxy support
-- `specs/25-OpenCode-Integration.md` — **PRIMARY EXECUTION OS CONTRACT** — replaces specs/07
-- `specs/26-MCP-Server-Generation.md` — MCP server generation from `tool` blocks
+- `specs/25-OpenCode-Integration.md` — OpenCode IDE config contract (optional IDE path — not required for `claw run`)
+- `specs/26-MCP-Server-Generation.md` — MCP server generation from `tool`/`agent` blocks (optional IDE path)
+- `specs/38-Closed-Loop-Runtime.md` — `claw run`/`claw serve` headless execution, `runtime.js` codegen
+- `specs/39-Runtime-First-Architecture.md` — **PRIMARY EXECUTION CONTRACT** — Claw as runtime, zero-dependency `runtime.js`, `claw chat`
 - `specs/27-GAN-Audit-OpenCode-Migration.md` — Active adversarial audit findings
 - `specs/28-Use-Cases.md` — Canonical examples and workflow scenarios
 - `specs/29-Codebase-Cleanup.md` — Architecture pivot cleanup requirements
+
+---
+
+## 8. Spec Index — Progressive Disclosure Reference
+
+Scan this table to find the right spec before reading code. One row per spec; GAN audit logs listed inline. Read the spec BEFORE touching code in its domain.
+
+### Language Core
+
+| Spec | File | What it covers | Read before touching |
+|---|---|---|---|
+| 01 | `01-DSL-Core-Specification.md` | Language syntax, keywords, all DSL constructs | Any `.claw` language change |
+| 02 | `02-Compiler-Architecture.md` | Pipeline stages, error recovery, exit codes | `src/bin/claw.rs`, pipeline wiring |
+| 03 | `03-Grammar.md` | Formal PEG grammar for winnow parser | `src/parser.rs` |
+| 04 | `04-AST-Structures.md` | Rust AST data structures for all language constructs | `src/ast.rs` |
+| 05 | `05-Type-System.md` | 3-pass semantic analysis: symbol resolution → reference validation → type checking | `src/semantic/` |
+| 06 | `06-CodeGen-SDK.md` | TypeScript, Python, OpenCode, BAML emission rules | `src/codegen/` (any target) |
+
+### Testing, Tooling & Distribution
+
+| Spec | File | What it covers | Read before touching |
+|---|---|---|---|
+| 08 | `08-Testing-Spec.md` | TDD methodology, test placement, snapshot rules | Any new test |
+| 09 | `09-Implementation-Flow.md` | Build order, module dependencies, phase gates | Planning new features |
+| 14 | `14-CLI-Tooling.md` | `claw build/dev/test` commands, LSP, `claw.json` config | `src/bin/claw.rs`, `src/lsp.rs` |
+| 19 | `19-Binary-Distribution.md` | NPM wrapper, binary release, proxy support | Release pipeline |
+
+### Security
+
+| Spec | File | What it covers | Read before touching |
+|---|---|---|---|
+| 12 | `12-Security-Model.md` | Compiler security invariants (§7 active; §§2-6 superseded). Path safety, injection prevention | Any input-handling code |
+
+### Phase 6 Compiler Completeness
+
+| Spec | File | What it covers | Read before touching |
+|---|---|---|---|
+| 15 | `15-Phase6-Compiler-Completeness.md` | `try/catch`, `break/continue`, binary ops, circular type detection | `src/semantic/`, `src/parser.rs` |
+| 17 | `17-Phase6-Test-Runner-And-Mocks.md` | `claw test` execution model; §7 is the active model | `src/codegen/test_runner.rs` |
+| 18 | `18-BAML-Integration-Layer.md` | BAML codegen emitter; §1–4 active, §5 superseded | `src/codegen/baml.rs` |
+
+### Runtime and OpenCode IDE Integration
+
+**Primary execution path:** `claw run` / `claw chat` via `generated/runtime.js` — no OpenCode, no npm required (Spec 38, 39).
+**Optional IDE path:** OpenCode reads `opencode.json` + `mcp-server.js` — requires `npm install` (Spec 25, 26).
+
+| Spec | File | What it covers | Read before touching |
+| --- | --- | --- | --- |
+| 25 | `25-OpenCode-Integration.md` | OpenCode IDE config: `opencode.json` fields (model, mcp, instructions, provider.ollama), merge strategy. **IDE path only — not required for `claw run`** | `src/codegen/opencode.rs`, `.opencode/` |
+| 26 | `26-MCP-Server-Generation.md` | Generates `generated/mcp-server.js` from `tool` and `agent` blocks. Calls LLM directly (no child opencode process). Path safety, error isolation | `src/codegen/mcp.rs` |
+| 27 | `27-GAN-Audit-OpenCode-Migration.md` | Active adversarial audit findings for OpenCode pivot | Before any Spec 25/26 change |
+| 28 | `28-Use-Cases.md` | Canonical `.claw` examples and workflow scenarios | Planning use-case coverage |
+| 29 | `29-Codebase-Cleanup.md` | Architecture pivot cleanup requirements | Cleanup / debt work |
+| 30 | `30-First-Real-Test.md` | First end-to-end integration test: compiled `.claw` → `claw run` execution | Integration test work |
+| 31 | `31-BAML-OpenCode-Integration.md` | BAML + OpenCode runtime integration | BAML runtime wiring |
+| 38 | `38-Closed-Loop-Runtime.md` | `claw run` / `claw serve` headless execution via `generated/runtime.js`. PLANS/AGENTS/SCHEMAS codegen, exit codes, CI/CD integration | `src/codegen/runtime.rs`, `src/bin/claw.rs` |
+| 39 | `39-Runtime-First-Architecture.md` | **Architecture pivot**: Claw IS the runtime. Zero-dependency `runtime.js` (raw fetch). `claw chat` terminal ChatOps. OpenCode as optional IDE backend. Updated init/build messaging | `src/bin/claw.rs`, `src/codegen/shared_js.rs` |
+
+### Synthesis Pipeline (Specs 32–37)
+
+These specs form a layered stack. Read them in order for context before touching synthesis code.
+
+| Spec | File | What it covers | Read before touching |
+|---|---|---|---|
+| 32 | `32-Code-Synthesis-Pipeline.md` | **Foundation.** `.claw` → artifact → LLM → TypeScript at `claw build` time. Artifact format, synthesis pass flow | `src/codegen/artifact.rs`, `src/codegen/synth_runner.rs` |
+| 33 | `33-Synthesis-Model-Interface.md` | `SynthesisRequest` / `SynthesisResponse` NDJSON protocol. `synth-runner.js` bridge | `src/codegen/synth_runner.rs`, `generated/synth-runner.js` |
+| 34 | `34-Advanced-Tool-Patterns.md` | `registry {}` (deferred BM25 tool loading), `sandbox {}` (isolated execution), `examples {}` (few-shot grounding), `description:` property | Registry/sandbox/examples codegen |
+| — | `34-GAN-Audit.md` | 3-round adversarial audit for Spec 34; 18 gaps fixed | Before implementing Spec 34 |
+| 35 | `35-Synthesis-Autoresearch.md` | `eval {}` block (LLM-judged quality criteria), `claw tune` CLI (prompt mutation loop), prompt versioning, `tsc:` mechanical criteria | `src/bin/tune.rs`, eval block codegen |
+| — | `35-GAN-Audit.md` | 2-round adversarial audit for Spec 35; 12 gaps fixed | Before implementing Spec 35 |
+| 36 | `36-Synthesis-Repair-Loop.md` | `retry {}` on synthesizer: tiered compile-then-test repair loop at `claw build` time. `repair`/`rewrite`/`repair_then_rewrite` strategies, stuck detection, budget tracking | `src/bin/claw.rs` synthesis wiring, `src/codegen/synth_runner.rs` |
+| — | `36-GAN-Audit.md` | 2-round adversarial audit for Spec 36; 12 gaps fixed | Before implementing Spec 36 |
+| 37 | `37-Spec-Autoresearch.md` | `claw spec-check` / `claw spec-tune` / `claw spec-cross-check`: automated spec quality scoring using 16 binary criteria. Applies autoresearch to spec documents | `src/bin/claw.rs` spec subcommands |
+| 38 | `38-Closed-Loop-Runtime.md` | `claw run` / `claw serve` headless execution via `generated/runtime.js`. PLANS/AGENTS/SCHEMAS codegen, exit codes E-RUN01–06, CI/CD integration. `runtime.js` is additive alongside OpenCode path | `src/codegen/runtime.rs`, `src/bin/claw.rs` |
+
+### Quick lookup: "which spec covers X?"
+
+| If you're working on... | Read |
+|---|---|
+| Any new DSL keyword or syntax | 01, 03, 04 |
+| A new AST node | 04, 05 |
+| A new codegen output file | 06 + target-specific spec |
+| `opencode.json` or `.opencode/` | 25, 26 |
+| MCP tool security | 12 §7, 26 §5 |
+| Synthesis (LLM generates TypeScript) | 32, 33 |
+| Synthesis quality / prompt tuning | 35 |
+| Synthesis repair at build time | 36 |
+| Tool registries, sandboxes, examples | 34 |
+| Spec quality audit automation | 37 |
+| Standalone workflow execution / `claw run` | 38, 39 |
+| `claw run`, `claw serve`, `claw chat` | 38, 39 |
+| OpenCode optional integration (IDE path) | 25, 26 |
+| Zero-dependency runtime.js / raw fetch LLM | 39 |
+| `claw test` command | 17 §7 |
+| `claw.json` config file | 14 |
+| Binary release / NPM wrapper | 19 |
+
+---
 
 **Superseded / historical specs (do NOT implement against these):**
 - `specs/07-OpenClaw-OS.md` — SUPERSEDED by `specs/25-OpenCode-Integration.md`

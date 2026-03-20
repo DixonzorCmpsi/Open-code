@@ -187,10 +187,15 @@ fn emit_type_schema(type_decl: &TypeDecl) -> String {
 
 fn emit_handler(tool: &ToolDecl, _document: &Document) -> String {
     let invoke_path = tool.invoke_path.as_deref().unwrap_or("scripts/stub");
+
+    // baml(...) tools delegate to the BAML generated client, not a JS module
+    if invoke_path.starts_with("baml(") {
+        return emit_baml_handler(tool);
+    }
+
     // Parse "module(X).function(Y)"
-    // For now, assume it's like module("scripts/search").function("run")
     let parts: Vec<&str> = invoke_path.split('.').collect();
-    let module_path = if parts.len() > 0 && parts[0].starts_with("module(\"") {
+    let module_path = if !parts.is_empty() && parts[0].starts_with("module(\"") {
         let start = parts[0].find('"').unwrap() + 1;
         let end = parts[0].rfind('"').unwrap();
         &parts[0][start..end]
@@ -234,12 +239,12 @@ fn emit_handler(tool: &ToolDecl, _document: &Document) -> String {
 
     const mod = await import(new URL(real, "file://").href);
     const result = await mod.{}({});
-    
+
     const schema = {};
     if (schema) {{
       validateOutput(result, schema, "{}");
     }}
-    
+
     return {{ content: [{{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }}] }};
   }} catch (err) {{
     return {{
@@ -254,6 +259,58 @@ fn emit_handler(tool: &ToolDecl, _document: &Document) -> String {
         module_path,
         function_name,
         args.join(", "),
+        schema_ref,
+        tool.name
+    )
+}
+
+fn emit_baml_handler(tool: &ToolDecl) -> String {
+    // Parse the BAML function name from invoke_path: baml("FunctionName") -> FunctionName
+    let invoke_path = tool.invoke_path.as_deref().unwrap_or("");
+    let baml_func_name = if invoke_path.starts_with("baml(") && invoke_path.ends_with(')') {
+        let inside = &invoke_path[5..invoke_path.len() - 1];
+        inside.trim_matches('"').to_owned()
+    } else {
+        tool.name.clone()
+    };
+
+    let args: Vec<_> = tool.arguments.iter().map(|a| a.name.as_str()).collect();
+    let args_obj = if args.is_empty() {
+        "{}".to_owned()
+    } else {
+        format!("{{ {} }}", args.join(", "))
+    };
+    let schema_ref = if let Some(rt) = &tool.return_type {
+        match rt {
+            DataType::Custom(name, _) => format!("SCHEMAS.{}", name),
+            _ => format!("{{ type: \"{}\" }}", data_type_to_string(rt)),
+        }
+    } else {
+        "null".to_owned()
+    };
+
+    format!(
+        r#"async function handle{}(args) {{
+  try {{
+    const {{ {} }} = args;
+    const {{ b }} = await import("../baml_client/index.js");
+    const result = await b.{}({});
+    const schema = {};
+    if (schema) {{
+      validateOutput(result, schema, "{}");
+    }}
+    return {{ content: [{{ type: "text", text: JSON.stringify(result) }}] }};
+  }} catch (err) {{
+    return {{
+      content: [{{ type: "text", text: `Error: ${{err.message}}` }}],
+      isError: true
+    }};
+  }}
+}}"#,
+        tool.name,
+        args.join(", "),
+        baml_func_name,
+        args_obj,
         schema_ref,
         tool.name
     )
@@ -299,35 +356,121 @@ fn emit_agent_tool_descriptor(agent: &AgentDecl) -> String {
     )
 }
 
-fn emit_agent_handler(agent: &AgentDecl, _document: &Document) -> String {
-    let system_prompt = agent.system_prompt.as_deref().unwrap_or("").replace('"', "\\\"").replace('\n', "\\n");
+fn emit_agent_handler(agent: &AgentDecl, document: &Document) -> String {
+    let system_prompt = agent.system_prompt.as_deref().unwrap_or("")
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
 
+    // Resolve declared client → provider + model
+    let (provider, model) = if let Some(client_name) = &agent.client {
+        if let Some(client) = document.clients.iter().find(|c| &c.name == client_name) {
+            (client.provider.clone(), client.model.clone())
+        } else {
+            ("anthropic".to_owned(), "claude-haiku-4-5-20251001".to_owned())
+        }
+    } else if let Some(client) = document.clients.first() {
+        (client.provider.clone(), client.model.clone())
+    } else {
+        ("anthropic".to_owned(), "claude-haiku-4-5-20251001".to_owned())
+    };
+
+    let max_steps: i64 = agent.settings.entries.iter()
+        .find(|e| e.name == "max_steps")
+        .and_then(|e| if let crate::ast::SettingValue::Int(n) = e.value { Some(n) } else { None })
+        .unwrap_or(10);
+
+    let temperature: f64 = agent.settings.entries.iter()
+        .find(|e| e.name == "temperature")
+        .and_then(|e| match e.value {
+            crate::ast::SettingValue::Float(f) => Some(f),
+            crate::ast::SettingValue::Int(n) => Some(n as f64),
+            _ => None,
+        })
+        .unwrap_or(1.0);
+
+    // Build JS expression to filter TOOLS to only this agent's declared tools
+    let agent_tools_filter = if agent.tools.is_empty() {
+        "TOOLS.filter(t => !t.name.startsWith(\"agent_\"))".to_owned()
+    } else {
+        let names: Vec<String> = agent.tools.iter().map(|t| format!("\"{}\"", t)).collect();
+        format!("TOOLS.filter(t => [{}].includes(t.name))", names.join(", "))
+    };
+
+    let is_local = provider == "local" || provider == "ollama";
+    let model_str = model.trim_start_matches("local.").to_owned();
+
+    if is_local {
+        emit_agent_handler_ollama(agent, &system_prompt, &model_str, max_steps, temperature, &agent_tools_filter)
+    } else {
+        emit_agent_handler_anthropic(agent, &system_prompt, &model_str, max_steps, temperature, &agent_tools_filter)
+    }
+}
+
+fn emit_agent_handler_anthropic(agent: &AgentDecl, system_prompt: &str, model: &str, max_steps: i64, temperature: f64, tools_filter: &str) -> String {
     format!(
         r#"async function handleagent_{}(args) {{
   try {{
     const {{ task }} = args;
-    const {{ execSync }} = await import("node:child_process");
-    const {{ writeFileSync, unlinkSync }} = await import("node:fs");
-    const {{ tmpdir }} = await import("node:os");
-    const {{ join }} = await import("node:path");
-    
-    const systemPrompt = "{}";
-    const tmpCtx = join(tmpdir(), `claw-agent-{}-${{Date.now()}}.md`);
-    writeFileSync(tmpCtx, `# Agent: {}\n\n${{systemPrompt}}\n`);
-    
-    try {{
-      const result = execSync(
-        `opencode -p ${{JSON.stringify(task)}} -q`,
-        {{
-          env: {{ ...process.env, OPENCODE_CONTEXT: tmpCtx }},
-          encoding: "utf8",
-          timeout: 120000
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const client = new Anthropic();
+
+    const agentTools = {};
+    const messages = [{{ role: "user", content: task }}];
+    let steps = 0;
+
+    while (steps < {}) {{
+      steps++;
+      const response = await client.messages.create({{
+        model: "{}",
+        system: "{}",
+        messages,
+        tools: agentTools.length > 0 ? agentTools.map(t => ({{
+          name: t.name,
+          description: t.description,
+          input_schema: t.inputSchema,
+        }})) : undefined,
+        max_tokens: 4096,
+        temperature: {},
+      }});
+
+      if (response.stop_reason === "end_turn") {{
+        const text = response.content.find(b => b.type === "text")?.text ?? "";
+        return {{ content: [{{ type: "text", text }}] }};
+      }}
+
+      if (response.stop_reason === "tool_use") {{
+        const toolUseBlocks = response.content.filter(b => b.type === "tool_use");
+        messages.push({{ role: "assistant", content: response.content }});
+        const toolResults = [];
+        for (const toolUse of toolUseBlocks) {{
+          const handler = HANDLERS[toolUse.name];
+          let resultContent;
+          if (handler) {{
+            const r = await handler(toolUse.input);
+            resultContent = r.isError
+              ? `Error: ${{r.content[0]?.text}}`
+              : (r.content[0]?.text ?? "");
+          }} else {{
+            resultContent = `Error: unknown tool "${{toolUse.name}}"`;
+          }}
+          toolResults.push({{
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: resultContent,
+          }});
         }}
-      );
-      return {{ content: [{{ type: "text", text: result }}] }};
-    }} finally {{
-      try {{ unlinkSync(tmpCtx); }} catch (_) {{}}
+        messages.push({{ role: "user", content: toolResults }});
+        continue;
+      }}
+
+      break;
     }}
+
+    return {{
+      content: [{{ type: "text", text: `Agent {} reached max_steps ({}) without finishing.` }}],
+      isError: true,
+    }};
   }} catch (err) {{
     return {{
       content: [{{ type: "text", text: `Agent {} failed: ${{err.message}}` }}],
@@ -335,6 +478,99 @@ fn emit_agent_handler(agent: &AgentDecl, _document: &Document) -> String {
     }};
   }}
 }}"#,
-        agent.name, system_prompt, agent.name.to_lowercase(), agent.name, agent.name
+        agent.name,
+        tools_filter,
+        max_steps,
+        model,
+        system_prompt,
+        temperature,
+        agent.name, max_steps,
+        agent.name
+    )
+}
+
+fn emit_agent_handler_ollama(agent: &AgentDecl, system_prompt: &str, model: &str, max_steps: i64, temperature: f64, tools_filter: &str) -> String {
+    format!(
+        r#"async function handleagent_{}(args) {{
+  try {{
+    const {{ task }} = args;
+    const agentTools = {};
+    const messages = [
+      {{ role: "system", content: "{}" }},
+      {{ role: "user", content: task }}
+    ];
+    let steps = 0;
+
+    while (steps < {}) {{
+      steps++;
+      const ollamaRes = await fetch("http://localhost:11434/v1/chat/completions", {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{
+          model: "{}",
+          messages,
+          tools: agentTools.length > 0 ? agentTools.map(t => ({{
+            type: "function",
+            function: {{ name: t.name, description: t.description, parameters: t.inputSchema }},
+          }})) : undefined,
+          stream: false,
+          temperature: {},
+        }}),
+      }});
+      const data = await ollamaRes.json();
+      const choice = data.choices?.[0];
+      if (!choice) break;
+
+      if (choice.finish_reason === "stop" || choice.finish_reason === "length") {{
+        const text = choice.message?.content ?? "";
+        return {{ content: [{{ type: "text", text }}] }};
+      }}
+
+      if (choice.finish_reason === "tool_calls") {{
+        const toolCalls = choice.message?.tool_calls ?? [];
+        messages.push({{ role: "assistant", content: choice.message?.content ?? null, tool_calls: toolCalls }});
+        for (const tc of toolCalls) {{
+          const handler = HANDLERS[tc.function.name];
+          let resultContent;
+          try {{
+            const tcArgs = typeof tc.function.arguments === "string"
+              ? JSON.parse(tc.function.arguments)
+              : tc.function.arguments;
+            if (handler) {{
+              const r = await handler(tcArgs);
+              resultContent = r.isError ? `Error: ${{r.content[0]?.text}}` : (r.content[0]?.text ?? "");
+            }} else {{
+              resultContent = `Error: unknown tool "${{tc.function.name}}"`;
+            }}
+          }} catch (e) {{
+            resultContent = `Error: ${{e.message}}`;
+          }}
+          messages.push({{ role: "tool", tool_call_id: tc.id, content: resultContent }});
+        }}
+        continue;
+      }}
+
+      break;
+    }}
+
+    return {{
+      content: [{{ type: "text", text: `Agent {} reached max_steps ({}) without finishing.` }}],
+      isError: true,
+    }};
+  }} catch (err) {{
+    return {{
+      content: [{{ type: "text", text: `Agent {} failed: ${{err.message}}` }}],
+      isError: true
+    }};
+  }}
+}}"#,
+        agent.name,
+        tools_filter,
+        system_prompt,
+        max_steps,
+        model,
+        temperature,
+        agent.name, max_steps,
+        agent.name
     )
 }

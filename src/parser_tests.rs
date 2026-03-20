@@ -111,15 +111,17 @@ fn test_parse_error_missing_brace() {
 }
 
 #[test]
-fn test_parse_error_unknown_primitive() {
-    let input = "type Foo { x: unknown }";
+fn test_parse_error_unterminated_list() {
+    // Unterminated tools list — parser must reject this
+    let input = "agent A { tools = [Foo";
     let res = parser::parse(input);
     assert!(matches!(res, Err(CompilerError::ParseError { .. })));
 }
 
 #[test]
-fn test_parse_error_empty_tools_list() {
-    let input = "agent A { tools = [] }";
+fn test_parse_error_missing_closing_brace() {
+    // Type block that is never closed
+    let input = "type Foo { url: string\n  snippet: string";
     let res = parser::parse(input);
     assert!(matches!(res, Err(CompilerError::ParseError { .. })));
 }

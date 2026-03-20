@@ -3,6 +3,13 @@ mod typescript;
 pub mod opencode;
 pub mod mcp;
 pub mod baml;
+pub mod artifact;
+pub mod synth_runner;
+pub mod ts_types;
+pub mod ts_workflow;
+pub mod ts_tests;
+pub mod shared_js;
+pub mod runtime;
 
 use std::fmt::Write as _;
 
@@ -15,7 +22,27 @@ use crate::ast::{
 };
 use crate::errors::CompilerResult;
 
-pub use baml::{BamlOutput, CallSiteSignature, ResolvedAgent, collect_call_sites, generate_baml, resolve_agents};
+pub use baml::{BamlOutput, generate_baml};
+
+pub fn generate_artifact(document: &Document, output_dir: &std::path::Path, source_path: &str) -> CompilerResult<()> {
+    artifact::generate(document, output_dir, source_path)
+}
+
+pub fn generate_synth_runner(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    synth_runner::generate(document, output_dir)
+}
+
+pub fn generate_ts_types(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    ts_types::generate(document, output_dir)
+}
+
+pub fn generate_ts_workflows(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    ts_workflow::generate(document, output_dir)
+}
+
+pub fn generate_ts_tests(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    ts_tests::generate(document, output_dir)
+}
 
 pub fn generate_ts(document: &Document) -> CompilerResult<String> {
     typescript::generate(document)
@@ -31,6 +58,10 @@ pub fn generate_opencode(document: &Document, output_dir: &std::path::Path) -> C
 
 pub fn generate_mcp(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
     mcp::generate(document, output_dir)
+}
+
+pub fn generate_runtime(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    runtime::generate(document, output_dir)
 }
 
 pub fn document_ast_hash(document: &Document) -> String {
@@ -262,6 +293,21 @@ fn write_statement(output: &mut String, statement: &Statement) {
         }
         Statement::Continue(_) => write_tag(output, "continue"),
         Statement::Break(_) => write_tag(output, "break"),
+        Statement::Reason {
+            using_agent,
+            input,
+            goal,
+            output_type,
+            bind,
+            ..
+        } => {
+            write_tag(output, "reason");
+            write_string(output, using_agent);
+            write_string(output, input);
+            write_string(output, goal);
+            write_data_type(output, output_type);
+            write_string(output, bind);
+        }
     }
 }
 
@@ -645,6 +691,9 @@ mod tests {
                 }],
                 return_type: Some(DataType::Custom("SearchResult".to_owned(), 181..193)),
                 invoke_path: Some("module(\"scripts.search\").function(\"run\")".to_owned()),
+                using: None,
+                synthesizer: None,
+                test_block: None,
                 span: 166..220,
             }],
             agents: vec![AgentDecl {
@@ -653,6 +702,7 @@ mod tests {
                 client: Some("FastOpenAI".to_owned()),
                 system_prompt: Some("Stay deterministic.".to_owned()),
                 tools: vec!["WebSearch".to_owned()],
+                dynamic_reasoning: std::cell::Cell::new(false),
                 settings: AgentSettings {
                     entries: vec![
                         AgentSetting {
@@ -771,6 +821,7 @@ mod tests {
             listeners: Vec::new(),
             tests: Vec::new(),
             mocks: Vec::new(),
+            synthesizers: Vec::new(),
             span: 0..464,
         }
     }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinaryOp, Block, DataType, Document, ElseBranch, Expr, MockDecl, SpannedExpr, Statement};
+use crate::ast::{BinaryOp, Block, Document, Expr, SpannedExpr, Statement};
 use crate::errors::CompilerError;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,6 +92,9 @@ fn eval_block(block: &Block, env: &mut Environment, doc: &Document) -> Result<Op
             }
             Statement::Expression(expr) => {
                 eval_expr(expr, env, doc)?;
+            }
+            Statement::Reason { .. } => {
+                // Ignore Reason statements in test execution (offline path)
             }
             _ => {
                 // Ignore other statements for this simple AST interpreter
@@ -211,7 +214,7 @@ fn eval_expr(expr: &SpannedExpr, env: &mut Environment, doc: &Document) -> Resul
                 })
             }
         }
-        Expr::ExecuteRun { agent_name, kwargs, .. } => {
+        Expr::ExecuteRun { agent_name, kwargs: _, .. } => {
             // Find a MockDecl intercepting this execution!
             // We just look for ANY mock targeting this agent for simplicity.
             for mock in &doc.mocks {

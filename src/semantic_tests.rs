@@ -6,9 +6,17 @@ use crate::errors::CompilerError;
 fn test_semantic_valid_document() {
     let input = r#"
 type SearchResult { url: string }
-tool WebSearch(query: string) -> SearchResult { invoke: module("a").function("b") }
-client LocalQwen { provider = "local", model = "m" }
-agent Researcher { client = LocalQwen, tools = [WebSearch] }
+tool WebSearch(query: string) -> SearchResult {
+    invoke: module("a").function("b")
+}
+client LocalQwen {
+    provider = "local"
+    model = "m"
+}
+agent Researcher {
+    client = LocalQwen
+    tools = [WebSearch]
+}
 workflow FindInfo(topic: string) -> SearchResult {
     let r: SearchResult = execute Researcher.run(task: "t", require_type: SearchResult)
     return r
@@ -28,7 +36,11 @@ fn test_semantic_undefined_tool() {
 
 #[test]
 fn test_semantic_undefined_agent() {
-    let input = "workflow W() { execute GhostAgent.run(task: 't') }";
+    let input = r#"
+workflow W(x: string) {
+    execute GhostAgent.run(task: "t")
+}
+"#;
     let doc = parser::parse(input).expect("parse failed");
     let res = semantic::analyze(&doc);
     assert!(matches!(res, Err(CompilerError::UndefinedAgent { .. })));
@@ -44,7 +56,14 @@ fn test_semantic_undefined_client() {
 
 #[test]
 fn test_semantic_duplicate_type() {
-    let input = "type Foo {} type Foo {}";
+    let input = r#"
+type Foo {
+    x: string
+}
+type Foo {
+    x: string
+}
+"#;
     let doc = parser::parse(input).expect("parse failed");
     let res = semantic::analyze(&doc);
     assert!(matches!(res, Err(CompilerError::DuplicateDeclaration { .. })));

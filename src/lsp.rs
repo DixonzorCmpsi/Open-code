@@ -246,6 +246,6 @@ mod tests {
         assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("undefined tool")));
         assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("undefined client")));
         assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("type mismatch")));
-        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("missing a return")));
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.message.contains("missing return")));
     }
 }

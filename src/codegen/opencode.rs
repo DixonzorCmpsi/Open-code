@@ -1,15 +1,15 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use serde_json::{json, Value};
-use crate::ast::*;
+use crate::ast::{DataType, Document, Expr, Statement, WorkflowDecl};
 use crate::errors::{CompilerError, CompilerResult};
 
 pub fn generate(document: &Document, project_root: &Path) -> CompilerResult<()> {
     // 1. Generate opencode.json (Merge strategy)
     generate_opencode_json(document, project_root)?;
 
-    // 2. Generate .opencode/commands/*.md
-    let commands_dir = project_root.join(".opencode").join("commands");
+    // 2. Generate .opencode/command/*.md
+    let commands_dir = project_root.join(".opencode").join("command");
     fs::create_dir_all(&commands_dir).map_err(|e| CompilerError::IoError {
         message: format!("failed to create commands directory: {e}"),
         span: 0..0,
@@ -31,6 +31,20 @@ pub fn generate(document: &Document, project_root: &Path) -> CompilerResult<()> 
     Ok(())
 }
 
+fn find_node_binary() -> String {
+    let candidates = [
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return path.to_string();
+        }
+    }
+    "node".to_string() // fallback
+}
+
 fn generate_opencode_json(document: &Document, project_root: &Path) -> CompilerResult<()> {
     let path = project_root.join("opencode.json");
     let mut config = if path.exists() {
@@ -43,32 +57,45 @@ fn generate_opencode_json(document: &Document, project_root: &Path) -> CompilerR
         json!({})
     };
 
-    // Update managed fields (Claw-owned)
-    // 1. agents.coder.model
+    // Update managed fields (Claw-owned) — OpenCode 1.x schema:
+    // 1. top-level "model" field; for local models: "ollama/<id>" + provider.ollama block
     if let Some(client) = document.clients.first() {
-        let mut agents = config.get("agents").and_then(|a| a.as_object()).cloned().unwrap_or_default();
-        let mut coder = agents.get("coder").and_then(|c| c.as_object()).cloned().unwrap_or_default();
-        coder.insert("model".to_owned(), json!(client.model));
-        agents.insert("coder".to_owned(), json!(coder));
-        config["agents"] = json!(agents);
+        if client.model.starts_with("local.") {
+            let model_id = client.model.trim_start_matches("local.");
+            config["model"] = json!(format!("ollama/{}", model_id));
+            // provider.ollama block required for local models
+            let mut provider = config.get("provider").and_then(|p| p.as_object()).cloned().unwrap_or_default();
+            let mut ollama = provider.get("ollama").and_then(|o| o.as_object()).cloned().unwrap_or_default();
+            ollama.entry("api".to_owned()).or_insert_with(|| json!("http://localhost:11434/v1"));
+            let mut models = ollama.get("models").and_then(|m| m.as_object()).cloned().unwrap_or_default();
+            models.entry(model_id.to_owned()).or_insert_with(|| json!({}));
+            ollama.insert("models".to_owned(), json!(models));
+            provider.insert("ollama".to_owned(), json!(ollama));
+            config["provider"] = json!(provider);
+        } else {
+            config["model"] = json!(client.model.clone());
+            // Remove provider block for cloud models
+            config.as_object_mut().unwrap().remove("provider");
+        }
+        // Remove stale agents block if present from an old build
+        config.as_object_mut().unwrap().remove("agents");
     }
 
-    // 2. mcpServers.claw-tools
-    let mut mcp_servers = config.get("mcpServers").and_then(|m| m.as_object()).cloned().unwrap_or_default();
-    mcp_servers.insert("claw-tools".to_owned(), json!({
-        "command": "node",
-        "args": ["generated/mcp-server.js"],
-        "type": "stdio"
+    // 2. mcp.claw-tools (NOT mcpServers), type = "local" (NOT "stdio")
+    let node_bin = find_node_binary();
+    let mut mcp = config.get("mcp").and_then(|m| m.as_object()).cloned().unwrap_or_default();
+    mcp.insert("claw-tools".to_owned(), json!({
+        "type": "local",
+        "command": [node_bin, "generated/mcp-server.js"]
     }));
-    config["mcpServers"] = json!(mcp_servers);
+    config["mcp"] = json!(mcp);
+    // Remove stale mcpServers key if present from an old build
+    config.as_object_mut().unwrap().remove("mcpServers");
 
-    // 3. contextPaths
-    let mut context_paths = Vec::new();
-    if project_root.join("AGENTS.md").exists() {
-        context_paths.push("AGENTS.md".to_owned());
-    }
-    context_paths.push("generated/claw-context.md".to_owned());
-    config["contextPaths"] = json!(context_paths);
+    // 3. instructions (NOT contextPaths)
+    config["instructions"] = json!(["generated/claw-context.md"]);
+    // Remove stale contextPaths key if present from an old build
+    config.as_object_mut().unwrap().remove("contextPaths");
 
 
     let content = serde_json::to_string_pretty(&config).map_err(|e| CompilerError::CodegenError {
@@ -84,29 +111,29 @@ fn generate_opencode_json(document: &Document, project_root: &Path) -> CompilerR
     Ok(())
 }
 
-fn generate_agent_markdown(_agent: &AgentDecl, _document: &Document, _dir: &Path) -> CompilerResult<()> {
-    Ok(())
-}
-
 fn generate_workflow_command(workflow: &WorkflowDecl, document: &Document, dir: &Path) -> CompilerResult<()> {
     let mut content = String::from("");
-    content.push_str(&format!("Run the {} workflow.\n\n", workflow.name));
-    
-    for arg in &workflow.arguments {
-        content.push_str(&format!("{}: ${}\n", arg.name, arg.name.to_uppercase()));
-    }
-    content.push_str("\n");
+    content.push_str(&format!("You are executing the `{}` workflow.\n\n", workflow.name));
 
-    // Logic description
-    content.push_str("Steps:\n");
+    if !workflow.arguments.is_empty() {
+        content.push_str("The user has provided these arguments (substituted for the placeholders below):\n");
+        for arg in &workflow.arguments {
+            content.push_str(&format!("- `{}`: the value the user typed after the slash command\n", arg.name));
+        }
+        content.push_str("\n");
+    }
+
+    content.push_str("Execute these steps in order. Do NOT describe what you will do — actually do it using the available MCP tools:\n\n");
     for (i, stmt) in workflow.body.statements.iter().enumerate() {
         content.push_str(&format!("{}. {}\n", i + 1, describe_statement_opencode(stmt)));
     }
 
     if let Some(rt) = &workflow.return_type {
-        content.push_str("\nExpected output format (JSON):\n");
+        content.push_str("\nThe final result MUST be returned as JSON matching this schema:\n");
         content.push_str(&format!("{}\n", describe_type_json(rt, document)));
     }
+
+    content.push_str("\nIMPORTANT: Use the MCP tools directly. Do not call any \"Skill\". Do not echo these instructions back.\n");
 
     let path = dir.join(format!("{}.md", workflow.name));
     fs::write(path, content).map_err(|e| CompilerError::IoError {
@@ -152,39 +179,38 @@ fn generate_context_document(document: &Document, dir: &Path) -> CompilerResult<
     Ok(())
 }
 
-fn find_primary_agent<'a>(workflow: &'a WorkflowDecl, document: &'a Document) -> Option<&'a str> {
-    for stmt in &workflow.body.statements {
-        if let Statement::ExecuteRun { agent_name, .. } = stmt {
-            return Some(agent_name);
-        }
-        // Also check expressions
-        if let Statement::LetDecl { value, .. } = stmt {
-             if let Expr::ExecuteRun { agent_name, .. } = &value.expr {
-                 return Some(agent_name);
-             }
-        }
-    }
-    None
-}
-
 fn describe_statement_opencode(stmt: &Statement) -> String {
     match stmt {
-        Statement::LetDecl { name, value, .. } => format!("Initialize variable `{}` with {}", name, describe_expr_opencode(&value.expr)),
+        Statement::LetDecl { value, .. } => {
+            // Unwrap execute-run assignments directly — no need to mention variable binding
+            describe_expr_opencode(&value.expr)
+        }
         Statement::ForLoop { item_name, .. } => format!("Iterate over items as `{}`", item_name),
         Statement::IfCond { .. } => "Conditional branch".to_owned(),
         Statement::ExecuteRun { agent_name, kwargs, .. } => {
-            let mut args_desc = Vec::new();
-            for (name, val) in kwargs {
-                args_desc.push(format!("{}: {}", name, describe_expr_opencode(&val.expr)));
-            }
-            format!("Call agent_{} with {}", agent_name, args_desc.join(", "))
+            describe_agent_call(agent_name, kwargs)
         },
-        Statement::Return { .. } => "Return the result".to_owned(),
+        Statement::Return { value, .. } => format!("Return: {}", describe_expr_opencode(&value.expr)),
         Statement::TryCatch { .. } => "Try-catch block".to_owned(),
         Statement::Assert { .. } => "Assert condition".to_owned(),
         Statement::Continue(_) => "Continue loop".to_owned(),
         Statement::Break(_) => "Break loop".to_owned(),
-        Statement::Expression(e) => format!("Evaluate: {}", describe_expr_opencode(&e.expr)),
+        Statement::Expression(e) => describe_expr_opencode(&e.expr),
+        Statement::Reason { using_agent, goal, bind, .. } => {
+            format!("Reason using agent `{}`: {} → bind result to `{}`", using_agent, goal, bind)
+        }
+    }
+}
+
+fn describe_agent_call(agent_name: &str, kwargs: &[(String, crate::ast::SpannedExpr)]) -> String {
+    let mut args_desc = Vec::new();
+    for (name, val) in kwargs {
+        args_desc.push(format!("  - {}: {}", name, describe_expr_opencode(&val.expr)));
+    }
+    if args_desc.is_empty() {
+        format!("Call MCP tool `agent_{}` (no arguments)", agent_name)
+    } else {
+        format!("Call MCP tool `agent_{}` with:\n{}", agent_name, args_desc.join("\n"))
     }
 }
 
@@ -194,8 +220,8 @@ fn describe_expr_opencode(expr: &Expr) -> String {
         Expr::IntLiteral(i) => i.to_string(),
         Expr::FloatLiteral(f) => f.to_string(),
         Expr::BoolLiteral(b) => b.to_string(),
-        Expr::Identifier(i) => format!("${}", i.to_uppercase()),
-        Expr::ExecuteRun { agent_name, .. } => format!("Call agent_{}", agent_name),
+        Expr::Identifier(i) => format!("<{}>", i),
+        Expr::ExecuteRun { agent_name, kwargs, .. } => describe_agent_call(agent_name, kwargs),
         _ => "expression".to_owned(),
     }
 }

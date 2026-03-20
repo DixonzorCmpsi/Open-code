@@ -161,6 +161,124 @@ tool Search(query: string, max_results: optional<int>) -> list<SearchResult> {
 }
 ```
 
+### 2.5 Agent Runner Tool
+
+Each `agent` block generates an `agent_<Name>` MCP tool whose handler calls the LLM provider API **directly**. It MUST NOT spawn a child `opencode` process.
+
+**Claw source:**
+
+```claw
+agent Researcher {
+    client = FastClaude          // provider = "anthropic", model = "claude-4-sonnet"
+    system_prompt = "You form exact hypotheses before executing tools."
+    tools = [WebSearch, ReadFile]
+    settings = { max_steps: 5, temperature: 0.1 }
+}
+```
+
+**Generated handler (Anthropic provider):**
+
+```javascript
+async function handleagent_Researcher(args) {
+  try {
+    const { task } = args;
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+
+    const messages = [{ role: "user", content: task }];
+    let steps = 0;
+    const MAX_STEPS = 5; // from settings.max_steps
+
+    while (steps < MAX_STEPS) {
+      steps++;
+      const response = await client.messages.create({
+        model: "claude-4-sonnet",
+        system: "You form exact hypotheses before executing tools.",
+        messages,
+        tools: [
+          TOOLS.find(t => t.name === "WebSearch"),
+          TOOLS.find(t => t.name === "ReadFile"),
+        ].filter(Boolean),
+        max_tokens: 4096,
+      });
+
+      if (response.stop_reason === "end_turn") {
+        const text = response.content.find(b => b.type === "text")?.text ?? "";
+        return { content: [{ type: "text", text }] };
+      }
+
+      if (response.stop_reason === "tool_use") {
+        const toolUseBlocks = response.content.filter(b => b.type === "tool_use");
+        messages.push({ role: "assistant", content: response.content });
+        const toolResults = [];
+        for (const toolUse of toolUseBlocks) {
+          const handler = HANDLERS[toolUse.name];
+          let resultContent;
+          if (handler) {
+            const r = await handler(toolUse.input);
+            resultContent = r.isError
+              ? `Error: ${r.content[0]?.text}`
+              : r.content[0]?.text ?? "";
+          } else {
+            resultContent = `Error: unknown tool "${toolUse.name}"`;
+          }
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: resultContent,
+          });
+        }
+        messages.push({ role: "user", content: toolResults });
+        continue;
+      }
+
+      // Unexpected stop reason
+      break;
+    }
+
+    return {
+      content: [{ type: "text", text: `Agent Researcher reached max_steps (${MAX_STEPS}) without finishing.` }],
+      isError: true,
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text", text: `Agent Researcher failed: ${err.message}` }],
+      isError: true,
+    };
+  }
+}
+```
+
+**Generated handler (Ollama / local provider):**
+
+When `client.provider = "local"`, replace the Anthropic SDK call with an Ollama-compatible OpenAI-format call:
+
+```javascript
+// For provider = "local", model = "local.qwen2.5:14b"
+const response = await fetch("http://localhost:11434/v1/chat/completions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    model: "qwen2.5:14b",
+    messages: [{ role: "system", content: systemPrompt }, ...messages],
+    tools: toolSchemas,
+    stream: false,
+  }),
+});
+const data = await response.json();
+```
+
+**Rules for agent handler generation:**
+
+- The handler is named `handleagent_<Name>` (lowercase `agent_` prefix, camelCase name).
+- `client` in the `.claw` source resolves to provider + model. The handler uses the matching SDK.
+- `system_prompt` is passed as the `system` parameter (Anthropic) or as a system-role message (Ollama).
+- `settings.max_steps` becomes the `MAX_STEPS` loop limit. Default: `10` if not declared.
+- `settings.temperature` is passed in the API call. Default: `1.0` if not declared.
+- Only the tools listed in `agent.tools` are passed to the LLM in this handler — NOT all tools.
+- If `require_type` is declared on the `execute` call (resolved at workflow level), the handler validates the final text as JSON against the named schema before returning.
+- The MCP tool registration entry (`TOOLS` array) includes the agent's system prompt and available tool names in the `description` field so OpenCode's coder agent knows what each agent does.
+
 ---
 
 ## 3. Type System → JSON Schema Mapping

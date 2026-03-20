@@ -337,6 +337,9 @@ mod tests {
                 }],
                 return_type: Some(DataType::Custom("SearchResult".to_owned(), 126..138)),
                 invoke_path: Some("module(\"scripts.search\").function(\"run\")".to_owned()),
+                using: None,
+                synthesizer: None,
+                test_block: None,
                 span: 111..165,
             }],
             agents: Vec::new(),
@@ -372,6 +375,7 @@ mod tests {
             listeners: Vec::new(),
             tests: Vec::new(),
             mocks: Vec::new(),
+            synthesizers: Vec::new(),
             span: 0..234,
         }
     }
