@@ -508,18 +508,25 @@ fn run_chat(args: ChatArgs) -> Result<(), ClawCliError> {
         .map_err(|e| ClawCliError::Message(format!("failed to spawn node: {e}")))?;
 
     let list_str = String::from_utf8_lossy(&list_output.stdout);
-    let workflows: Vec<&str> = list_str.lines()
-        .filter(|l| !l.trim().is_empty())
-        .collect();
+    let plans: Vec<serde_json::Value> = serde_json::from_str(list_str.trim())
+        .unwrap_or_default();
 
-    if workflows.is_empty() {
+    if plans.is_empty() {
         return Err(ClawCliError::Message("no workflows found in runtime.js".to_owned()));
     }
 
     println!("Claw Chat — interactive workflow runner");
     println!("Available workflows:");
-    for wf in &workflows {
-        println!("  {wf}");
+    for p in &plans {
+        let name = p["name"].as_str().unwrap_or("?");
+        let args: Vec<&str> = p["requiredArgs"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        if args.is_empty() {
+            println!("  {name}");
+        } else {
+            println!("  {name}  (args: {})", args.join(", "));
+        }
     }
     println!();
 
