@@ -544,19 +544,25 @@ fn run_chat(args: ChatArgs) -> Result<(), ClawCliError> {
             break;
         }
 
-        // Collect key=value args
-        print!("args (key=value, space-separated, or blank)> ");
-        std::io::stdout().flush().ok();
-        let mut arg_line = String::new();
-        std::io::stdin().read_line(&mut arg_line).ok();
+        // Prompt for each required arg by name so multi-word values work naturally
+        let required_args: Vec<String> = plans.iter()
+            .find(|p| p["name"].as_str() == Some(&workflow_name))
+            .and_then(|p| p["requiredArgs"].as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
 
         let mut node_args: Vec<String> = vec![
             runtime.to_string_lossy().into_owned(),
             workflow_name,
         ];
-        for token in arg_line.split_whitespace() {
+        for arg_name in &required_args {
+            print!("{arg_name}> ");
+            std::io::stdout().flush().ok();
+            let mut val = String::new();
+            std::io::stdin().read_line(&mut val).ok();
+            let val = val.trim().to_owned();
             node_args.push("--arg".to_owned());
-            node_args.push(token.to_owned());
+            node_args.push(format!("{arg_name}={val}"));
         }
 
         let status = Command::new(&node)
