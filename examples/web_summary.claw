@@ -1,0 +1,45 @@
+// examples/web_summary.claw
+// Fetches and summarizes a web page, saves markdown to ~/Desktop/summaries/
+//
+// Run (JS):     claw build web_summary.claw && claw run SummarizePage --arg url="https://example.com"
+// Run (Python): claw build --lang python web_summary.claw
+//               python generated/claw/__init__.py SummarizePage --arg url="https://example.com"
+// Import (TS):  import { SummarizePage } from "./generated/claw/index.js"
+// Import (Py):  from generated.claw import summarize_page
+
+type PageSummary {
+    title: string
+    content: string
+    word_count: int
+}
+
+tool FetchPage(url: string) -> PageSummary {
+    invoke: module("scripts/fetch_page").function("run")
+}
+
+client Local {
+    provider = "local"
+    model = "local.qwen2.5:14b"
+}
+
+agent Summarizer {
+    client = Local
+    tools = [FetchPage]
+    system_prompt = "Fetch the page and extract a summary. Return ONLY valid JSON with fields: title (string), content (2-4 sentence summary), word_count (integer estimate). No other text."
+    settings = {
+        max_steps: 5,
+        temperature: 0.0
+    }
+}
+
+workflow SummarizePage(url: string) -> PageSummary {
+    artifact {
+        format = "markdown"
+        path = "~/Desktop/summaries/${url}.md"
+    }
+    let result: PageSummary = execute Summarizer.run(
+        task: "Fetch and summarize the page at: ${url}",
+        require_type: PageSummary
+    )
+    return result
+}

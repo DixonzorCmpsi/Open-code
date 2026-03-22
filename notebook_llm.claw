@@ -1,0 +1,51 @@
+// notebook_llm.claw
+// Notebook LLM E2E test — generates a structured notebook artifact using local Ollama.
+//
+// Build:
+//   claw build notebook_llm.claw
+//
+// Run:
+//   claw run NotebookLLM
+//
+// Artifact saved to: /Users/dixon.zor/Documents/Open-code/notebook_output.json
+
+type NotebookResult {
+    title:    string
+    summary:  string
+    sections: list<string>
+    tags:     list<string>
+}
+
+// ── Clients ───────────────────────────────────────────────────────────────────
+
+client LocalQwen {
+    provider = "local"
+    model    = "local.qwen2.5:14b"
+}
+
+// ── Agents ────────────────────────────────────────────────────────────────────
+
+agent NotebookWriter {
+    client        = LocalQwen
+    system_prompt = "You are a precise technical writer. Always respond with valid JSON only. No markdown fences, no extra text."
+    settings = {
+        max_steps:   2,
+        temperature: 0.1
+    }
+}
+
+// ── Workflow ──────────────────────────────────────────────────────────────────
+
+workflow NotebookLLM() -> NotebookResult {
+    artifact {
+        format = "slides"
+        path   = "/Users/dixon.zor/Documents/Open-code/notebook_output.html"
+    }
+
+    let notebook: NotebookResult = execute NotebookWriter.run(
+        task: "Create a technical notebook about the Claw DSL language. Return a JSON object with exactly these fields: title (string, the notebook title), summary (string, 2-3 sentence overview of Claw), sections (array of exactly 3 strings, each a short paragraph about: 1. What Claw is, 2. How synthesis works, 3. The agent execution model), tags (array of exactly 4 strings: relevant tags like 'DSL', 'AI', 'Rust', 'agents'). Return JSON only, no markdown.",
+        require_type: NotebookResult
+    )
+
+    return notebook
+}

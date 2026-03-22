@@ -27,6 +27,10 @@ agent Researcher {
 }
 
 workflow FindInfo(topic: string) -> SearchResult {
+    artifact {
+        format = "json"
+        path = "~/Desktop/claw-results/${topic}.json"
+    }
     let result: SearchResult = execute Researcher.run(
         task: "Find the most relevant info about: ${topic}",
         require_type: SearchResult

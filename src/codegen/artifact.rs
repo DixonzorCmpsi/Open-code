@@ -334,6 +334,12 @@ fn emit_expr_step(expr: &Expr) -> Value {
                 "require_type": require_type.as_ref().map(type_name),
             })
         }
+        Expr::DirectToolCall { tool_name, args } => {
+            json!({
+                "direct_tool_call": tool_name,
+                "args": emit_kwargs(args),
+            })
+        }
         Expr::BinaryOp { left, op, right } => {
             json!({
                 "binary_op": format!("{op:?}"),

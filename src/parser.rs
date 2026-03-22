@@ -6,9 +6,10 @@ use winnow::stream::LocatingSlice;
 use winnow::token::{take_till, take_while};
 
 use crate::ast::{
-    AgentDecl, AgentSetting, AgentSettings, BinaryOp, Block, ClientDecl, Constraint, DataType,
-    Document, ElseBranch, ExpectOp, Expr, ImportDecl, ListenerDecl, MockDecl, SettingValue, SpannedExpr,
-    Statement, SynthesizerDecl, TestBlock, TestDecl, ToolDecl, TypeDecl, TypeField, UsingExpr, WorkflowDecl,
+    AgentDecl, AgentSetting, AgentSettings, ArtifactSpec, BinaryOp, Block, ClientDecl, Constraint,
+    DataType, Document, ElseBranch, ExpectOp, Expr, ImportDecl, ListenerDecl, MockDecl,
+    OnFailStrategy, SettingValue, SpannedExpr, Statement, SynthesizerDecl, TestBlock, TestDecl,
+    ToolDecl, TypeDecl, TypeField, UsingExpr, WorkflowDecl,
 };
 use crate::errors::{CompilerError, CompilerResult};
 
@@ -399,6 +400,7 @@ enum ToolProperty {
     Using(UsingExpr),
     Synthesizer(String),
     Test(TestBlock),
+    Secrets(Vec<String>),
 }
 
 fn tool_decl(input: &mut Input<'_>) -> PResult<ToolDecl> {
@@ -425,6 +427,7 @@ fn tool_decl(input: &mut Input<'_>) -> PResult<ToolDecl> {
                         using: None,
                         synthesizer: None,
                         test_block: None,
+                        secrets: Vec::new(),
                         span: span.clone(),
                     };
 
@@ -435,6 +438,7 @@ fn tool_decl(input: &mut Input<'_>) -> PResult<ToolDecl> {
                                 ToolProperty::Using(u) => decl.using = Some(u),
                                 ToolProperty::Synthesizer(s) => decl.synthesizer = Some(s),
                                 ToolProperty::Test(t) => decl.test_block = Some(t),
+                                ToolProperty::Secrets(keys) => decl.secrets = keys,
                             }
                         }
                     }
@@ -479,8 +483,18 @@ fn tool_property_parser(input: &mut Input<'_>) -> PResult<ToolProperty> {
         .map(ToolProperty::Synthesizer)
         .parse_next(input),
         "test" => test_body.map(ToolProperty::Test).parse_next(input),
+        "secrets" => secrets_block.map(ToolProperty::Secrets).parse_next(input),
         _ => Err(ErrMode::from_input(input)),
     }
+}
+
+/// Parse `secrets { KEY1 KEY2 OPTIONAL_KEY }` — a whitespace-separated list of env var names.
+fn secrets_block(input: &mut Input<'_>) -> PResult<Vec<String>> {
+    brace_delimited(repeat::<_, _, Vec<String>, _, _>(
+        0..,
+        lexeme(simple_identifier_raw),
+    ))
+    .parse_next(input)
 }
 
 fn using_expr(input: &mut Input<'_>) -> PResult<UsingExpr> {
@@ -721,13 +735,14 @@ fn workflow_decl(input: &mut Input<'_>) -> PResult<WorkflowDecl> {
                 lexeme(simple_identifier_raw),
                 paren_delimited(opt(tool_args)),
                 opt(preceded(lexeme("->"), raw_data_type)),
-                block,
+                workflow_body,
             )
                 .with_span()
-                .map(|((_, name, arguments, return_type, body), span)| WorkflowDecl {
+                .map(|((_, name, arguments, return_type, (artifact, body)), span)| WorkflowDecl {
                     name,
                     arguments: arguments.unwrap_or_default(),
                     return_type,
+                    artifact,
                     body,
                     span,
                 }),
@@ -736,6 +751,60 @@ fn workflow_decl(input: &mut Input<'_>) -> PResult<WorkflowDecl> {
     );
 
     parser.parse_next(input)
+}
+
+/// Parses the `{ [artifact { ... }] statements... }` body of a workflow.
+fn workflow_body(input: &mut Input<'_>) -> PResult<(Option<ArtifactSpec>, Block)> {
+    preceded(
+        trivia,
+        delimited(
+            '{',
+            (
+                opt(artifact_spec),
+                repeat(0.., statement)
+                    .with_span()
+                    .map(|(statements, span)| Block { statements, span }),
+            ),
+            cut_err(preceded(trivia, '}')),
+        ),
+    )
+    .parse_next(input)
+}
+
+/// Parses `artifact { format = "..." path = "..." }` inside a workflow body.
+fn artifact_spec(input: &mut Input<'_>) -> PResult<ArtifactSpec> {
+    preceded(
+        trivia,
+        (
+            lexeme("artifact"),
+            brace_delimited(repeat::<_, _, Vec<(String, String)>, _, _>(1.., artifact_field)),
+        )
+            .with_span()
+            .map(|((_, fields), span)| {
+                let format = fields
+                    .iter()
+                    .find(|(k, _)| k == "format")
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_else(|| "json".to_owned());
+                let path = fields
+                    .iter()
+                    .find(|(k, _)| k == "path")
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default();
+                ArtifactSpec { format, path, span }
+            }),
+    )
+    .parse_next(input)
+}
+
+/// Parses a single `key = "value"` field inside an artifact block.
+fn artifact_field(input: &mut Input<'_>) -> PResult<(String, String)> {
+    preceded(
+        trivia,
+        (lexeme(simple_identifier_raw), lexeme('='), string_literal),
+    )
+    .map(|(key, _, value)| (key, value))
+    .parse_next(input)
 }
 
 fn listener_decl(input: &mut Input<'_>) -> PResult<ListenerDecl> {
@@ -868,6 +937,7 @@ enum ReasonField {
     Goal(String),
     OutputType(DataType),
     Bind(String),
+    OnFail(OnFailStrategy),
 }
 
 fn reason_field(input: &mut Input<'_>) -> PResult<(String, ReasonField)> {
@@ -880,8 +950,28 @@ fn reason_field(input: &mut Input<'_>) -> PResult<(String, ReasonField)> {
         "goal" => string_literal.map(ReasonField::Goal).parse_next(input).map(|v| (key, v)),
         "output_type" => raw_data_type.map(ReasonField::OutputType).parse_next(input).map(|v| (key, v)),
         "bind" => simple_identifier_raw.map(ReasonField::Bind).parse_next(input).map(|v| (key, v)),
+        "on_fail" => on_fail_expr.map(ReasonField::OnFail).parse_next(input).map(|v| (key, v)),
         _ => Err(ErrMode::from_input(input)),
     }
+}
+
+/// Parse `retry(max: N)` or `re_synthesize` after `on_fail:`.
+fn on_fail_expr(input: &mut Input<'_>) -> PResult<OnFailStrategy> {
+    alt((
+        preceded(
+            (lexeme("retry"), lexeme('(')),
+            terminated(
+                preceded(
+                    (lexeme("max"), lexeme(':')),
+                    lexeme(digit1).try_map(|s: &str| s.parse::<u32>()),
+                ),
+                lexeme(')'),
+            ),
+        )
+        .map(|max| OnFailStrategy::Retry { max }),
+        lexeme("re_synthesize").map(|_| OnFailStrategy::ReSynthesize),
+    ))
+    .parse_next(input)
 }
 
 fn reason_stmt(input: &mut Input<'_>) -> PResult<Statement> {
@@ -900,6 +990,7 @@ fn reason_stmt(input: &mut Input<'_>) -> PResult<Statement> {
                 let mut goal = None;
                 let mut output_type = None;
                 let mut bind = None;
+                let mut on_fail = None;
 
                 for (_k, v) in fields {
                     match v {
@@ -908,6 +999,7 @@ fn reason_stmt(input: &mut Input<'_>) -> PResult<Statement> {
                         ReasonField::Goal(g) => goal = Some(g),
                         ReasonField::OutputType(t) => output_type = Some(t),
                         ReasonField::Bind(b) => bind = Some(b),
+                        ReasonField::OnFail(f) => on_fail = Some(f),
                     }
                 }
 
@@ -921,6 +1013,7 @@ fn reason_stmt(input: &mut Input<'_>) -> PResult<Statement> {
                     goal: goal.unwrap(),
                     output_type: output_type.unwrap(),
                     bind: bind.unwrap(),
+                    on_fail,
                     span,
                 })
             }),
@@ -1130,8 +1223,31 @@ fn expr(input: &mut Input<'_>) -> PResult<SpannedExpr> {
     .parse_next(input)
 }
 
+fn raw_direct_tool_call_expr(input: &mut Input<'_>) -> PResult<Expr> {
+    (
+        "call",
+        lexeme(simple_identifier_raw),
+        paren_delimited(direct_tool_call_args),
+    )
+        .map(|(_, tool_name, args)| Expr::DirectToolCall { tool_name, args })
+        .parse_next(input)
+}
+
+fn direct_tool_call_args(input: &mut Input<'_>) -> PResult<Vec<(String, SpannedExpr)>> {
+    terminated(separated(0.., direct_tool_call_arg, lexeme(',')), opt(lexeme(',')))
+        .parse_next(input)
+}
+
+fn direct_tool_call_arg(input: &mut Input<'_>) -> PResult<(String, SpannedExpr)> {
+    let name = lexeme(simple_identifier_raw).parse_next(input)?;
+    lexeme(':').parse_next(input)?;
+    let value = expr.parse_next(input)?;
+    Ok((name, value))
+}
+
 fn raw_expr(input: &mut Input<'_>) -> PResult<Expr> {
     let (left, left_span) = alt((
+        raw_direct_tool_call_expr,
         raw_execute_run_expr,
         raw_array_expr,
         raw_string_expr,
@@ -1368,6 +1484,7 @@ fn raw_data_type(input: &mut Input<'_>) -> PResult<DataType> {
         "int".span().map(DataType::Int),
         "float".span().map(DataType::Float),
         "boolean".span().map(DataType::Boolean),
+        "bool".span().map(DataType::Boolean),
         (
             "list",
             lexeme('<'),

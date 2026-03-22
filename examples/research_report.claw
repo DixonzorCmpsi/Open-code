@@ -1,0 +1,42 @@
+// examples/research_report.claw
+// Researches a topic and saves a markdown report to ~/Documents/research/
+//
+// Run (JS):     claw build research_report.claw && claw run ResearchTopic --arg topic="quantum computing"
+// Run (Python): claw build --lang python research_report.claw
+//               python generated/claw/__init__.py ResearchTopic --arg topic="quantum computing"
+// Run (TS):     claw build --lang ts research_report.claw
+//               npx tsx generated/claw/index.ts ResearchTopic --arg topic="quantum computing"
+// Import (TS):  import { ResearchTopic } from "./generated/claw/index.js"
+// Import (Py):  from generated.claw import research_topic
+
+type ResearchReport {
+    topic: string
+    summary: string
+    key_points: string
+}
+
+client Anthropic {
+    provider = "anthropic"
+    model = "claude-haiku-4-5-20251001"
+}
+
+agent Researcher {
+    client = Anthropic
+    system_prompt = "You are a research assistant. Research the given topic thoroughly. Return ONLY valid JSON with fields: topic (string), summary (2-3 paragraphs), key_points (bullet points as a single string). No other text."
+    settings = {
+        max_steps: 3,
+        temperature: 0.3
+    }
+}
+
+workflow ResearchTopic(topic: string) -> ResearchReport {
+    artifact {
+        format = "markdown"
+        path = "~/Documents/research/${topic}.md"
+    }
+    let report: ResearchReport = execute Researcher.run(
+        task: "Research this topic and return JSON: ${topic}",
+        require_type: ResearchReport
+    )
+    return report
+}

@@ -1,0 +1,49 @@
+// examples/data_extract.claw
+// Extracts structured data from text and saves as JSON to a specified output directory.
+// Demonstrates: Anthropic provider + JSON artifact + path interpolation
+//
+// Run (JS):
+//   claw build data_extract.claw
+//   claw run ExtractData --arg input="Apple reported $94B revenue in Q3 2024" --arg label="earnings"
+//
+// Import (TS):
+//   import { ExtractData } from "./generated/claw/index.js"
+//   const result = await ExtractData({ input: "Apple reported...", label: "earnings" })
+//   // result saved automatically to ~/Desktop/extracted/earnings.json
+//
+// Import (Py):
+//   from generated.claw import extract_data
+//   result = await extract_data(input="Apple reported...", label="earnings")
+
+type ExtractedData {
+    entity: string
+    value: string
+    unit: string
+    context: string
+}
+
+client Anthropic {
+    provider = "anthropic"
+    model = "claude-haiku-4-5-20251001"
+}
+
+agent Extractor {
+    client = Anthropic
+    system_prompt = "You are a data extraction specialist. Extract structured information from text. Return ONLY valid JSON with fields: entity (what entity the data is about), value (the numeric or categorical value), unit (unit of measurement or type), context (1 sentence explaining the data point). No other text."
+    settings = {
+        max_steps: 2,
+        temperature: 0.0
+    }
+}
+
+workflow ExtractData(input: string, label: string) -> ExtractedData {
+    artifact {
+        format = "json"
+        path = "~/Desktop/extracted/${label}.json"
+    }
+    let data: ExtractedData = execute Extractor.run(
+        task: "Extract structured data from this text: ${input}",
+        require_type: ExtractedData
+    )
+    return data
+}

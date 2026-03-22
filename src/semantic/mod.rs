@@ -783,6 +783,7 @@ mod tests {
                 using: None,
                 synthesizer: None,
                 test_block: None,
+                secrets: vec![],
                 span: 59..90,
             }],
             agents: vec![AgentDecl {
@@ -804,6 +805,7 @@ mod tests {
                     span: 100..112,
                 }],
                 return_type: Some(custom_type("SearchResult", 160, 172)),
+                artifact: None,
                 body: Block {
                     statements: vec![
                         Statement::LetDecl {

@@ -4,12 +4,13 @@ pub mod opencode;
 pub mod mcp;
 pub mod baml;
 pub mod artifact;
-pub mod synth_runner;
 pub mod ts_types;
 pub mod ts_workflow;
 pub mod ts_tests;
+pub mod skill_spec;
 pub mod shared_js;
 pub mod runtime;
+pub mod ts_reason;
 
 use std::fmt::Write as _;
 
@@ -28,10 +29,6 @@ pub fn generate_artifact(document: &Document, output_dir: &std::path::Path, sour
     artifact::generate(document, output_dir, source_path)
 }
 
-pub fn generate_synth_runner(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
-    synth_runner::generate(document, output_dir)
-}
-
 pub fn generate_ts_types(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
     ts_types::generate(document, output_dir)
 }
@@ -40,8 +37,16 @@ pub fn generate_ts_workflows(document: &Document, output_dir: &std::path::Path) 
     ts_workflow::generate(document, output_dir)
 }
 
+pub fn generate_ts_reason(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
+    ts_reason::generate(document, output_dir)
+}
+
 pub fn generate_ts_tests(document: &Document, output_dir: &std::path::Path) -> CompilerResult<()> {
     ts_tests::generate(document, output_dir)
+}
+
+pub fn generate_skill_specs(document: &Document, project_root: &std::path::Path) -> CompilerResult<()> {
+    skill_spec::generate(document, project_root)
 }
 
 pub fn generate_ts(document: &Document) -> CompilerResult<String> {
@@ -135,6 +140,7 @@ fn write_tool_decl(output: &mut String, declaration: &ToolDecl) {
     write_seq(output, "arguments", &declaration.arguments, write_type_field);
     write_option_data_type(output, "return_type", declaration.return_type.as_ref());
     write_option_string(output, "invoke_path", declaration.invoke_path.as_deref());
+    write_seq(output, "secrets", &declaration.secrets, |out, key| write_string(out, key));
 }
 
 fn write_agent_decl(output: &mut String, declaration: &AgentDecl) {
@@ -169,6 +175,14 @@ fn write_workflow_decl(output: &mut String, declaration: &WorkflowDecl) {
     write_string(output, &declaration.name);
     write_seq(output, "arguments", &declaration.arguments, write_type_field);
     write_option_data_type(output, "return_type", declaration.return_type.as_ref());
+    if let Some(artifact) = &declaration.artifact {
+        write_tag(output, "artifact_format");
+        write_string(output, &artifact.format);
+        write_tag(output, "artifact_path");
+        write_string(output, &artifact.path);
+    } else {
+        write_tag(output, "artifact_none");
+    }
     write_tag(output, "body");
     write_block(output, &declaration.body);
 }
@@ -299,6 +313,7 @@ fn write_statement(output: &mut String, statement: &Statement) {
             goal,
             output_type,
             bind,
+            on_fail,
             ..
         } => {
             write_tag(output, "reason");
@@ -307,6 +322,14 @@ fn write_statement(output: &mut String, statement: &Statement) {
             write_string(output, goal);
             write_data_type(output, output_type);
             write_string(output, bind);
+            match on_fail {
+                Some(crate::ast::OnFailStrategy::Retry { max }) => {
+                    write_tag(output, "on_fail_retry");
+                    let _ = write!(output, "{max};");
+                }
+                Some(crate::ast::OnFailStrategy::ReSynthesize) => write_tag(output, "on_fail_resynth"),
+                None => write_tag(output, "on_fail_none"),
+            }
         }
     }
 }
@@ -363,6 +386,11 @@ fn write_expr(output: &mut String, expr: &Expr) {
             write_string(output, agent_name);
             write_seq(output, "kwargs", kwargs, write_kwarg);
             write_option_data_type(output, "require_type", require_type.as_ref());
+        }
+        Expr::DirectToolCall { tool_name, args } => {
+            write_tag(output, "direct_tool_call");
+            write_string(output, tool_name);
+            write_seq(output, "args", args, write_kwarg);
         }
         Expr::BinaryOp { left, op, right } => {
             write_tag(output, "binary");
@@ -504,81 +532,32 @@ mod tests {
         SpannedExpr { expr, span }
     }
 
-    fn normalize_ast_hash(output: &str) -> String {
-        let prefix = r#"export const CLAW_AST_HASH = ""#;
-        let Some(pos) = output.find(prefix) else {
-            return output.to_owned();
-        };
-        let hash_start = pos + prefix.len();
-        let hash_end = hash_start + 64;
-        if hash_end > output.len() {
-            return output.to_owned();
-        }
-        format!("{}<ast_hash>{}", &output[..hash_start], &output[hash_end..])
-    }
-
     #[test]
-    fn emits_typescript_sdk_snapshot_for_valid_document() {
+    fn emits_baml_style_self_contained_ts() {
         let output = generate_ts(&valid_document()).unwrap();
 
-        insta::assert_snapshot!(normalize_ast_hash(&output), @r#"
-        import { z } from "zod";
-        import { ClawClient } from "@claw/sdk";
+        // No SDK gateway — must be self-contained
+        assert!(!output.contains("@claw/sdk"), "must not import @claw/sdk");
+        assert!(!output.contains("ClawClient"), "must not reference ClawClient");
+        assert!(!output.contains("executeWorkflow"), "must not call executeWorkflow");
 
-        export const CLAW_AST_HASH = "<ast_hash>";
+        // Node built-in imports only
+        assert!(output.contains("from \"node:url\""));
+        assert!(output.contains("from \"zod\""));
 
-        export interface SearchResult {
-            url: string;
-            confidence_score: number;
-            snippet: string;
-            tags: string[];
-        }
+        // Type interfaces and schemas preserved
+        assert!(output.contains("export interface SearchResult {"));
+        assert!(output.contains("export const SearchResultSchema"));
 
-        export const SearchResultSchema: z.ZodType<SearchResult> = z.object({
-            url: z.string(),
-            confidence_score: z.number().min(0),
-            snippet: z.string(),
-            tags: z.array(z.string()),
-        }).strict();
+        // Static typed workflow functions (Spec 41)
+        assert!(output.contains("export async function AnalyzeCompetitors(args:"));
+        assert!(output.contains(": Promise<SearchResult>"));
 
-        export interface VerifiedUser {
-            email: string;
-            age: number;
-        }
+        // Agent runners
+        assert!(output.contains("async function runAgent_Researcher(task: string)"));
 
-        export const VerifiedUserSchema: z.ZodType<VerifiedUser> = z.object({
-            email: z.string().regex(new RegExp("^[\\w-\\.]+@([\\w-]+\\.)+[\\w-]{2,4}$")),
-            age: z.number().int().min(18),
-        }).strict();
-
-        export const AnalyzeCompetitors = async (
-            company: string,
-            options: { client: ClawClient; resumeSessionId?: string }
-        ): Promise<SearchResult> => {
-            const result = await options.client.executeWorkflow({
-                workflowName: "AnalyzeCompetitors",
-                arguments: { company },
-                astHash: CLAW_AST_HASH,
-                resumeSessionId: options.resumeSessionId,
-            });
-
-            return SearchResultSchema.parse(result);
-        };
-
-        export const VerifyUser = async (
-            email: string,
-            options: { client: ClawClient; resumeSessionId?: string }
-        ): Promise<VerifiedUser> => {
-            const result = await options.client.executeWorkflow({
-                workflowName: "VerifyUser",
-                arguments: { email },
-                astHash: CLAW_AST_HASH,
-                resumeSessionId: options.resumeSessionId,
-            });
-
-            return VerifiedUserSchema.parse(result);
-        };
-        "#);
+        // CLI entry guard
+        assert!(output.contains("fileURLToPath(import.meta.url)"));
     }
 
     #[test]
@@ -591,14 +570,13 @@ mod tests {
     }
 
     #[test]
-    fn emits_workflow_wrappers_with_gateway_calls() {
+    fn emits_workflow_calls_run_agent_and_parses_result() {
         let output = generate_ts(&valid_document()).unwrap();
 
-        assert!(output.contains("export const AnalyzeCompetitors = async ("));
-        assert!(output.contains(r#"workflowName: "AnalyzeCompetitors""#));
-        assert!(output.contains("arguments: { company }"));
-        assert!(output.contains("astHash: CLAW_AST_HASH"));
-        assert!(output.contains("return SearchResultSchema.parse(result);"));
+        assert!(output.contains("export async function AnalyzeCompetitors(args:"));
+        assert!(output.contains("runAgent_Researcher("));
+        assert!(output.contains("SearchResultSchema.parse("));
+        assert!(output.contains("\"E-RUN03\""));
     }
 
     fn valid_document() -> Document {
@@ -694,6 +672,7 @@ mod tests {
                 using: None,
                 synthesizer: None,
                 test_block: None,
+                secrets: vec![],
                 span: 166..220,
             }],
             agents: vec![AgentDecl {
@@ -730,6 +709,7 @@ mod tests {
                         span: 281..295,
                     }],
                     return_type: Some(DataType::Custom("SearchResult".to_owned(), 296..308)),
+                    artifact: None,
                     body: Block {
                         statements: vec![
                             Statement::LetDecl {
@@ -778,6 +758,7 @@ mod tests {
                         span: 375..387,
                     }],
                     return_type: Some(DataType::Custom("VerifiedUser".to_owned(), 388..400)),
+                    artifact: None,
                     body: Block {
                         statements: vec![
                             Statement::LetDecl {

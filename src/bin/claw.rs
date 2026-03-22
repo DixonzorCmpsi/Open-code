@@ -5,6 +5,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clawc::ast::ToolDecl;
 use clawc::codegen;
 use clawc::config::{BuildLanguage, ClawConfig};
 use clawc::errors::CompilerError;
@@ -27,6 +28,7 @@ enum Commands {
     Test(TestArgs),
     Run(RunArgs),
     Chat(ChatArgs),
+    Synthesize(SynthesizeArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -46,6 +48,18 @@ struct ChatArgs {
     /// Path to runtime.js (defaults to generated/runtime.js)
     #[arg(long)]
     runtime: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+struct SynthesizeArgs {
+    /// Specific tool name to synthesize (synthesizes all tools with `using:` if omitted)
+    tool: Option<String>,
+    /// Maximum synthesis attempts per tool (default: 3)
+    #[arg(long, default_value = "3")]
+    max_iter: u32,
+    /// Path to claw.json config
+    #[arg(long, default_value = "claw.json")]
+    config: PathBuf,
 }
 
 #[derive(Debug, clap::Args)]
@@ -149,6 +163,7 @@ fn run(cli: Cli) -> Result<(), ClawCliError> {
         Commands::Test(args) => run_test(args),
         Commands::Run(args) => run_run(args),
         Commands::Chat(args) => run_chat(args),
+        Commands::Synthesize(args) => run_synthesize(args),
     }
 }
 
@@ -289,15 +304,18 @@ fn run_compile_once(source_path: &Path, lang: BuildLanguage) -> Result<(), ClawC
             if has_synthesis {
                 codegen::generate_artifact(&document, project_root, source_name)
                     .map_err(|e| ClawCliError::Message(e.to_string()))?;
-                codegen::generate_synth_runner(&document, project_root)
-                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
                 codegen::generate_ts_types(&document, project_root)
+                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
+                codegen::generate_ts_reason(&document, project_root)
                     .map_err(|e| ClawCliError::Message(e.to_string()))?;
                 codegen::generate_ts_workflows(&document, project_root)
                     .map_err(|e| ClawCliError::Message(e.to_string()))?;
                 codegen::generate_ts_tests(&document, project_root)
                     .map_err(|e| ClawCliError::Message(e.to_string()))?;
-                println!("  Synthesis pipeline: generated/artifact.clawa.json → run `claw synthesize` to invoke LLM");
+                codegen::generate_skill_specs(&document, project_root)
+                    .map_err(|e| ClawCliError::Message(e.to_string()))?;
+                println!("  Synthesis pipeline: generated/specs/tools/*.md + generated/__tests__/*.test.ts");
+                println!("  Run `claw synthesize` to generate tool implementations via OpenCode");
             }
 
             // Generate BAML source files only if any tool uses invoke: baml(...)
@@ -475,10 +493,23 @@ fn check_node_version() -> Result<String, ClawCliError> {
 
 fn run_run(args: RunArgs) -> Result<(), ClawCliError> {
     let node = check_node_version()?;
-    let runtime = find_runtime_js(args.runtime)?;
 
-    // Build argv: node runtime.js <workflow> [--arg key=value ...]
-    let mut node_args: Vec<String> = vec![runtime.to_string_lossy().into_owned(), args.workflow];
+    // Track B: prefer synthesized workflow JS if it exists
+    let workflow_js = Path::new("generated")
+        .join("workflows")
+        .join(format!("{}.js", args.workflow));
+
+    let (script, prepend_workflow) = if workflow_js.exists() {
+        (workflow_js, false)
+    } else {
+        // Track A: runtime.js fallback
+        (find_runtime_js(args.runtime)?, true)
+    };
+
+    let mut node_args: Vec<String> = vec![script.to_string_lossy().into_owned()];
+    if prepend_workflow {
+        node_args.push(args.workflow);
+    }
     for kv in &args.args {
         node_args.push("--arg".to_owned());
         node_args.push(kv.clone());
@@ -490,8 +521,7 @@ fn run_run(args: RunArgs) -> Result<(), ClawCliError> {
         .map_err(|e| ClawCliError::Message(format!("failed to spawn node: {e}")))?;
 
     if !status.success() {
-        let code = status.code().unwrap_or(1);
-        std::process::exit(code);
+        std::process::exit(status.code().unwrap_or(1));
     }
     Ok(())
 }
@@ -576,6 +606,205 @@ fn run_chat(args: ChatArgs) -> Result<(), ClawCliError> {
         println!();
     }
     Ok(())
+}
+
+fn run_synthesize(args: SynthesizeArgs) -> Result<(), ClawCliError> {
+    let config = if args.config.exists() {
+        Some(ClawConfig::load(&args.config).map_err(|e| ClawCliError::Message(e.to_string()))?)
+    } else {
+        None
+    };
+
+    let source_path = config
+        .as_ref()
+        .map(|c| c.build.source.clone())
+        .ok_or_else(|| {
+            ClawCliError::Message(
+                "claw.json not found — run `claw build` first or specify --config".to_owned(),
+            )
+        })?;
+
+    let source = fs::read_to_string(&source_path)
+        .map_err(|e| ClawCliError::Message(format!("failed to read {}: {e}", source_path.display())))?;
+
+    let document = parser::parse(&source).map_err(|error| {
+        let rendered = format_compiler_error(&source_path, &source, &error);
+        ClawCliError::Compiler { error, rendered }
+    })?;
+
+    let project_root = source_path.parent().unwrap_or(Path::new("."));
+
+    let tools_to_synth: Vec<&ToolDecl> = document
+        .tools
+        .iter()
+        .filter(|t| t.using.is_some())
+        .filter(|t| {
+            args.tool.as_deref().map_or(true, |name| t.name == name)
+        })
+        .collect();
+
+    if tools_to_synth.is_empty() {
+        if let Some(ref name) = args.tool {
+            return Err(ClawCliError::Message(format!(
+                "tool `{name}` not found or has no `using:` declaration"
+            )));
+        }
+        println!("No tools with `using:` found — nothing to synthesize.");
+        return Ok(());
+    }
+
+    let model_flag = resolve_synthesizer_model(&document);
+    println!(
+        "synthesizing {} tool(s) via opencode{}...",
+        tools_to_synth.len(),
+        if model_flag.is_empty() { String::new() } else { format!(" (model: {model_flag})") }
+    );
+
+    let mut failed = 0usize;
+    for tool in &tools_to_synth {
+        match synthesize_tool(tool, &model_flag, project_root, args.max_iter) {
+            Ok(()) => println!("  ✓ {}", tool.name),
+            Err(e) => {
+                eprintln!("  ✗ {}: {e}", tool.name);
+                failed += 1;
+            }
+        }
+    }
+
+    if failed > 0 {
+        return Err(ClawCliError::Message(format!("{failed} tool(s) failed to synthesize")));
+    }
+
+    println!("\n✓ synthesis complete — run `claw run <Workflow>` to execute");
+    Ok(())
+}
+
+fn resolve_synthesizer_model(document: &clawc::ast::Document) -> String {
+    let synth_client_name = document.synthesizers.first().map(|s| s.client.as_str());
+    let client = synth_client_name
+        .and_then(|name| document.clients.iter().find(|c| c.name == name))
+        .or_else(|| document.clients.first());
+
+    match client {
+        None => String::new(),
+        Some(c) => {
+            let model = c.model.trim_start_matches("local.");
+            match c.provider.as_str() {
+                "local" | "ollama" => format!("ollama/{model}"),
+                "anthropic" => format!("anthropic/{model}"),
+                "openai" => format!("openai/{model}"),
+                other => format!("{other}/{model}"),
+            }
+        }
+    }
+}
+
+fn synthesize_tool(
+    tool: &ToolDecl,
+    model_flag: &str,
+    project_root: &Path,
+    max_iter: u32,
+) -> Result<(), ClawCliError> {
+    let spec_path = project_root
+        .join("generated")
+        .join("specs")
+        .join("tools")
+        .join(format!("{}.md", tool.name));
+
+    let base_prompt = if spec_path.exists() {
+        fs::read_to_string(&spec_path)
+            .map_err(|e| ClawCliError::Message(format!("failed to read skill spec: {e}")))?
+    } else {
+        format!(
+            "Implement the TypeScript tool `{name}` in `generated/tools/{name}.ts`.\n\
+             When complete, output exactly: SYNTHESIS_COMPLETE: {name}",
+            name = tool.name
+        )
+    };
+
+    let tools_dir = project_root.join("generated").join("tools");
+    fs::create_dir_all(&tools_dir).map_err(|e| {
+        ClawCliError::Message(format!("failed to create generated/tools/: {e}"))
+    })?;
+
+    let output_file = tools_dir.join(format!("{}.ts", tool.name));
+
+    let mut last_error: Option<String> = None;
+
+    for attempt in 1..=max_iter.max(1) {
+        let prompt = match &last_error {
+            Some(err) => format!(
+                "{base_prompt}\n\nPrevious attempt failed:\n{err}\n\nTry again. Output SYNTHESIS_COMPLETE: {} when done.",
+                tool.name
+            ),
+            None => base_prompt.clone(),
+        };
+
+        let mut cmd = Command::new("opencode");
+        cmd.arg("run").arg("--dir").arg(project_root);
+        cmd.args(["--format", "json"]);
+        if !model_flag.is_empty() {
+            cmd.args(["--model", model_flag]);
+        }
+        cmd.arg(&prompt);
+
+        let output = cmd.output().map_err(|e| {
+            ClawCliError::Message(format!(
+                "failed to spawn opencode: {e} — is opencode installed? (brew install opencode)"
+            ))
+        })?;
+
+        let response_text = parse_ndjson_text(&output.stdout);
+
+        if response_text.contains(&format!("SYNTHESIS_COMPLETE: {}", tool.name))
+            && output_file.exists()
+        {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        last_error = Some(if !stderr.trim().is_empty() {
+            stderr.to_string()
+        } else if !output_file.exists() {
+            format!("generated/tools/{}.ts was not written", tool.name)
+        } else {
+            format!(
+                "SYNTHESIS_COMPLETE: {} sentinel not found in response",
+                tool.name
+            )
+        });
+
+        if attempt < max_iter {
+            eprintln!("  attempt {attempt} failed for {} — retrying...", tool.name);
+        }
+    }
+
+    Err(ClawCliError::Message(
+        last_error.unwrap_or_else(|| "synthesis failed".to_owned()),
+    ))
+}
+
+fn parse_ndjson_text(bytes: &[u8]) -> String {
+    let raw = String::from_utf8_lossy(bytes);
+    let mut result = String::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if val.get("type").and_then(|v| v.as_str()) == Some("text") {
+                if let Some(text) = val
+                    .get("part")
+                    .and_then(|p| p.get("text"))
+                    .and_then(|t| t.as_str())
+                {
+                    result.push_str(text);
+                }
+            }
+        }
+    }
+    result
 }
 
 fn format_compiler_error(path: &Path, source: &str, error: &CompilerError) -> String {

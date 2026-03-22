@@ -2,3 +2,14 @@ target/
 generated/
 node_modules/
 openclaw-gateway/.claw/
+
+# OpenCode session cache
+.opencode/
+
+# Test artifact outputs (notebook_llm.claw E2E outputs)
+notebook_output.*
+youtube_log.txt
+
+# Build artifacts
+*.clawa.json
+*.pptx

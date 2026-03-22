@@ -1,5 +1,6 @@
 ---
 source: src/parser.rs
+assertion_line: 1788
 expression: document
 ---
 Document {
@@ -115,6 +116,7 @@ Document {
             using: None,
             synthesizer: None,
             test_block: None,
+            secrets: [],
             span: 439..590,
         },
     ],
@@ -175,6 +177,7 @@ Document {
                     936..942,
                 ),
             ),
+            artifact: None,
             body: Block {
                 statements: [
                     LetDecl {
@@ -214,9 +217,9 @@ Document {
                         span: 1109..1135,
                     },
                 ],
-                span: 943..1136,
+                span: 944..1135,
             },
-            span: 899..1150,
+            span: 899..1136,
         },
     ],
     listeners: [

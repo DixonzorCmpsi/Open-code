@@ -1,0 +1,49 @@
+// examples/hello_claw.claw
+// Minimal E2E test — no external APIs, uses local Ollama (qwen2.5:14b).
+//
+// Build:
+//   claw build examples/hello_claw.claw
+//
+// Run:
+//   claw run HelloClaw
+//
+// Artifact saved to: ~/Desktop/claw-output/hello.json
+
+type HelloResult {
+    message: string
+    facts: list<string>
+}
+
+// ── Clients ───────────────────────────────────────────────────────────────────
+
+client LocalQwen {
+    provider = "local"
+    model    = "local.qwen2.5:14b"
+}
+
+// ── Agents ────────────────────────────────────────────────────────────────────
+
+agent Writer {
+    client        = LocalQwen
+    system_prompt = "You are a precise assistant. Always respond with valid JSON only. No markdown fences, no extra text."
+    settings = {
+        max_steps:   2,
+        temperature: 0.0
+    }
+}
+
+// ── Workflow ──────────────────────────────────────────────────────────────────
+
+workflow HelloClaw() -> HelloResult {
+    artifact {
+        format = "json"
+        path   = "~/Desktop/claw-output/hello.json"
+    }
+
+    let result: HelloResult = execute Writer.run(
+        task: "Return a JSON object with exactly two fields: message (a one-sentence greeting about the Claw DSL language) and facts (an array of exactly 3 short facts about the Rust programming language). Return JSON only.",
+        require_type: HelloResult
+    )
+
+    return result
+}

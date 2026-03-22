@@ -461,6 +461,7 @@ These specs form a layered stack. Read them in order for context before touching
 | — | `36-GAN-Audit.md` | 2-round adversarial audit for Spec 36; 12 gaps fixed | Before implementing Spec 36 |
 | 37 | `37-Spec-Autoresearch.md` | `claw spec-check` / `claw spec-tune` / `claw spec-cross-check`: automated spec quality scoring using 16 binary criteria. Applies autoresearch to spec documents | `src/bin/claw.rs` spec subcommands |
 | 38 | `38-Closed-Loop-Runtime.md` | `claw run` / `claw serve` headless execution via `generated/runtime.js`. PLANS/AGENTS/SCHEMAS codegen, exit codes E-RUN01–06, CI/CD integration. `runtime.js` is additive alongside OpenCode path | `src/codegen/runtime.rs`, `src/bin/claw.rs` |
+| 49 | `49-Extended-Capabilities-And-Synthesis-Gate.md` | `using: applescript` (macOS GUI), `using: computer` (vision model + LLM-at-runtime), Synthesis Sandbox Gate (Stage 2.5 subprocess isolation before vitest) | `src/parser.rs`, `src/ast.rs`, `src/semantic/`, `src/codegen/skill_spec.rs`, `src/codegen/ts_tests.rs`, `src/bin/claw.rs` |
 
 ### Quick lookup: "which spec covers X?"
 
@@ -478,6 +479,9 @@ These specs form a layered stack. Read them in order for context before touching
 | Spec quality audit automation | 37 |
 | Standalone workflow execution / `claw run` | 38, 39 |
 | `claw run`, `claw serve`, `claw chat` | 38, 39 |
+| macOS GUI automation (`applescript`) | 49 |
+| Visual computer interaction (`computer`) | 49 |
+| Synthesis sandbox gate (Stage 2.5) | 49 |
 | OpenCode optional integration (IDE path) | 25, 26 |
 | Zero-dependency runtime.js / raw fetch LLM | 39 |
 | `claw test` command | 17 §7 |

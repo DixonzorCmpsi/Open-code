@@ -168,7 +168,7 @@ fn emit_type_schema(type_decl: &TypeDecl) -> String {
     let mut props = Vec::new();
     let mut required = Vec::new();
     for field in &type_decl.fields {
-        props.push(format!("      {}: {}", field.name, data_type_to_json_schema(&field.data_type)));
+        props.push(format!("      {}: {}", field.name, data_type_to_json_schema_with_constraints(&field.data_type, &field.constraints)));
         required.push(format!("\"{}\"", field.name));
     }
 
@@ -186,6 +186,12 @@ fn emit_type_schema(type_decl: &TypeDecl) -> String {
 }
 
 fn emit_handler(tool: &ToolDecl, _document: &Document) -> String {
+    // Synthesized tools (using:) → route to generated/tools/<Name>.js
+    // These are the purpose-built TypeScript files written by the synthesis loop.
+    if tool.using.is_some() {
+        return emit_synthesized_handler(tool);
+    }
+
     let invoke_path = tool.invoke_path.as_deref().unwrap_or("scripts/stub");
 
     // baml(...) tools delegate to the BAML generated client, not a JS module
@@ -264,6 +270,90 @@ fn emit_handler(tool: &ToolDecl, _document: &Document) -> String {
     )
 }
 
+/// Emit an MCP handler for a synthesis-path tool (`using:`).
+/// Routes to `generated/tools/<Name>.js` — the LLM-written TypeScript compiled to JS.
+/// Validates required secrets are present before calling.
+fn emit_synthesized_handler(tool: &ToolDecl) -> String {
+    let args: Vec<_> = tool.arguments.iter().map(|a| a.name.as_str()).collect();
+    let args_obj = if args.is_empty() {
+        "{}".to_owned()
+    } else {
+        format!("{{ {} }}", args.iter().map(|a| format!("{a}")).collect::<Vec<_>>().join(", "))
+    };
+
+    let schema_ref = if let Some(rt) = &tool.return_type {
+        match rt {
+            DataType::Custom(name, _) => format!("SCHEMAS.{}", name),
+            _ => format!("{{ type: \"{}\" }}", data_type_to_string(rt)),
+        }
+    } else {
+        "null".to_owned()
+    };
+
+    // Emit runtime secret checks — fail fast with a clear message rather than a confusing error
+    // deep inside the synthesized code.
+    let secret_checks = if tool.secrets.is_empty() {
+        String::new()
+    } else {
+        let checks: Vec<String> = tool.secrets.iter().map(|key| {
+            format!(
+                "    if (!process.env[\"{key}\"]) {{\n      throw new Error('E-SEC01: required secret {key} not set — add it to your environment before running');\n    }}"
+            )
+        }).collect();
+        checks.join("\n") + "\n"
+    };
+
+    // The synthesized file is TypeScript; at runtime we load the compiled JS.
+    // `claw build` or `tsc` compiles generated/tools/<Name>.ts → generated/tools/<Name>.js.
+    // If only the .ts exists (not yet compiled), we hint the user.
+    format!(
+        r#"async function handle{name}(args) {{
+  try {{
+    const {{ {arg_list} }} = args;
+
+{secret_checks}    // Load the synthesized implementation.
+    // Run `npx tsc generated/tools/{name}.ts --outDir generated/tools` to compile.
+    const implPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "tools/{name}.js"
+    );
+    if (!await fs.access(implPath).then(() => true).catch(() => false)) {{
+      throw new Error(
+        'E-SYNTH01: generated/tools/{name}.js not found. ' +
+        'Run `claw synthesize --tool {name}` then compile with tsc.'
+      );
+    }}
+    const real = await fs.realpath(implPath);
+    const wsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const rel = path.relative(wsRoot, real);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {{
+      throw new Error('Tool module resolves outside workspace: {name}');
+    }}
+
+    const mod = await import(new URL(real, "file://").href);
+    const result = await mod.{name}({args_obj});
+
+    const schema = {schema_ref};
+    if (schema) {{
+      validateOutput(result, schema, "{name}");
+    }}
+
+    return {{ content: [{{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result) }}] }};
+  }} catch (err) {{
+    return {{
+      content: [{{ type: "text", text: `Error: ${{err.message}}` }}],
+      isError: true
+    }};
+  }}
+}}"#,
+        name = tool.name,
+        arg_list = args.join(", "),
+        secret_checks = secret_checks,
+        args_obj = args_obj,
+        schema_ref = schema_ref,
+    )
+}
+
 fn emit_baml_handler(tool: &ToolDecl) -> String {
     // Parse the BAML function name from invoke_path: baml("FunctionName") -> FunctionName
     let invoke_path = tool.invoke_path.as_deref().unwrap_or("");
@@ -316,6 +406,49 @@ fn emit_baml_handler(tool: &ToolDecl) -> String {
     )
 }
 
+/// Emit a JSON Schema object for a type field that includes constraint keywords
+/// (minimum, maximum, minLength, maxLength, pattern) from @min/@max/@regex annotations.
+/// Spec 26 §3 — H-01 fix from spec 47.
+fn data_type_to_json_schema_with_constraints(dt: &DataType, constraints: &[Constraint]) -> String {
+    if constraints.is_empty() {
+        return data_type_to_json_schema(dt);
+    }
+
+    let base_type = match dt {
+        DataType::String(_)  => "string",
+        DataType::Int(_)     => "integer",
+        DataType::Float(_)   => "number",
+        DataType::Boolean(_) => "boolean",
+        DataType::List(..)   => return data_type_to_json_schema(dt), // list constraints not supported
+        DataType::Custom(..) => return data_type_to_json_schema(dt),
+    };
+
+    let mut extras: Vec<String> = Vec::new();
+    for c in constraints {
+        let val = match &c.value.expr {
+            Expr::IntLiteral(n)   => n.to_string(),
+            Expr::FloatLiteral(f) => f.to_string(),
+            Expr::StringLiteral(s) => format!("{s:?}"),
+            _ => continue,
+        };
+        let keyword = match (c.name.as_str(), base_type) {
+            ("min", "integer") | ("min", "number") => "minimum",
+            ("max", "integer") | ("max", "number") => "maximum",
+            ("min", "string")  => "minLength",
+            ("max", "string")  => "maxLength",
+            ("regex", "string") => "pattern",
+            _ => continue,
+        };
+        extras.push(format!("{keyword}: {val}"));
+    }
+
+    if extras.is_empty() {
+        return data_type_to_json_schema(dt);
+    }
+
+    format!("{{ type: \"{base_type}\", {} }}", extras.join(", "))
+}
+
 fn data_type_to_json_schema(dt: &DataType) -> String {
     match dt {
         DataType::String(_) => r#"{ type: "string" }"#.to_owned(),
@@ -356,8 +489,50 @@ fn emit_agent_tool_descriptor(agent: &AgentDecl) -> String {
     )
 }
 
+/// Collect all tool names for an agent, merging from parent via `extends` chain.
+/// Spec 32 §21: merged tool list = parent.tools ∪ child.tools.
+/// H-02 fix from spec 47.
+fn resolve_agent_tools(agent: &AgentDecl, document: &Document) -> Vec<String> {
+    let mut tools = agent.tools.clone();
+    let mut current = agent;
+    // Walk up the inheritance chain
+    while let Some(parent_name) = &current.extends {
+        if let Some(parent) = document.agents.iter().find(|a| &a.name == parent_name) {
+            for t in &parent.tools {
+                if !tools.contains(t) {
+                    tools.push(t.clone());
+                }
+            }
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    tools
+}
+
+/// Resolve the effective system_prompt for an agent, falling back to parent's if absent.
+/// Spec 32 §21: child's prompt overrides; if absent, use parent's.
+fn resolve_agent_system_prompt<'a>(agent: &'a AgentDecl, document: &'a Document) -> &'a str {
+    if agent.system_prompt.is_some() {
+        return agent.system_prompt.as_deref().unwrap_or("");
+    }
+    let mut current = agent;
+    while let Some(parent_name) = &current.extends {
+        if let Some(parent) = document.agents.iter().find(|a| &a.name == parent_name) {
+            if parent.system_prompt.is_some() {
+                return parent.system_prompt.as_deref().unwrap_or("");
+            }
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    ""
+}
+
 fn emit_agent_handler(agent: &AgentDecl, document: &Document) -> String {
-    let system_prompt = agent.system_prompt.as_deref().unwrap_or("")
+    let system_prompt = resolve_agent_system_prompt(agent, document)
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n");
@@ -389,11 +564,12 @@ fn emit_agent_handler(agent: &AgentDecl, document: &Document) -> String {
         })
         .unwrap_or(1.0);
 
-    // Build JS expression to filter TOOLS to only this agent's declared tools
-    let agent_tools_filter = if agent.tools.is_empty() {
+    // Merge tools from parent chain (H-02 fix)
+    let effective_tools = resolve_agent_tools(agent, document);
+    let agent_tools_filter = if effective_tools.is_empty() {
         "TOOLS.filter(t => !t.name.startsWith(\"agent_\"))".to_owned()
     } else {
-        let names: Vec<String> = agent.tools.iter().map(|t| format!("\"{}\"", t)).collect();
+        let names: Vec<String> = effective_tools.iter().map(|t| format!("\"{}\"", t)).collect();
         format!("TOOLS.filter(t => [{}].includes(t.name))", names.join(", "))
     };
 

@@ -1,0 +1,116 @@
+// examples/purse_finder.claw
+// Searches for a purse matching user criteria, reasons about it, saves a report.
+//
+// Build (synthesis pass — writes TypeScript tools before runtime):
+//   claw build examples/purse_finder.claw
+//   claw synthesize --tool WebSearch
+//
+// Run after synthesis:
+//   claw run FindPurse --arg style="tote" --arg color="tan" --arg brand="Coach"
+//
+// Or build Python for local dev:
+//   claw build --lang python examples/purse_finder.claw
+//   python3 examples/generated/claw/__init__.py FindPurse \
+//     --arg style="tote" --arg color="tan" --arg brand="Coach"
+//
+// Artifact saved to: ~/Desktop/purse-finds/<brand>-<color>-<style>.json
+
+type SearchResult {
+    url: string
+    snippet: string
+    confidence_score: float
+}
+
+type PurseReport {
+    query: string
+    url: string
+    snippet: string
+    verdict: string
+    match_score: string
+    recommendation: string
+}
+
+// ── Clients ───────────────────────────────────────────────────────────────────
+
+// Used by agents at runtime (local model, no API key needed)
+client LocalQwen {
+    provider = "local"
+    model = "local.qwen2.5:14b"
+}
+
+// Used by the synthesis loop to write TypeScript tool implementations
+client SynthClaude {
+    provider = "anthropic"
+    model = "claude-sonnet-4-6"
+}
+
+// ── Synthesizer declaration ───────────────────────────────────────────────────
+// Registers `SynthClaude` as the LLM that writes tool implementations.
+// `claw synthesize` reads this to know which model/temperature to use.
+synthesizer KarpathyLoop {
+    client = SynthClaude
+    temperature = 0.2
+    max_tokens = 8192
+}
+
+// ── Tools ─────────────────────────────────────────────────────────────────────
+
+// WebSearch is a synthesis-path tool: `using: fetch` tells the compiler to emit
+// a skill spec + contract test. `claw synthesize` will write the TypeScript impl.
+tool WebSearch(query: string) -> SearchResult {
+    using: fetch
+
+    test {
+        input: { query: "Coach tan leather tote bag" }
+        expect: { url: !empty, snippet: !empty, confidence_score: >= 0.4 }
+    }
+}
+
+// ── Agents ────────────────────────────────────────────────────────────────────
+
+// Search agent — finds the purse
+agent Searcher {
+    client = LocalQwen
+    system_prompt = "You are a product search assistant. Use WebSearch to find the most relevant product. When you have a result, return ONLY valid JSON with fields: url (string), snippet (string), confidence_score (float 0-1). No other text."
+    tools = [WebSearch]
+    settings = {
+        max_steps: 3,
+        temperature: 0.0
+    }
+}
+
+// Analyst agent — reasons about the result against criteria
+agent Analyst {
+    client = LocalQwen
+    system_prompt = "You are a luxury goods analyst. Given search context and product criteria, evaluate how well the product matches. Return ONLY valid JSON with fields: query (string), url (string), snippet (string), verdict (one sentence), match_score ('high'/'medium'/'low'), recommendation (one sentence). No other text."
+    settings = {
+        max_steps: 2,
+        temperature: 0.2
+    }
+}
+
+// ── Workflow ──────────────────────────────────────────────────────────────────
+
+workflow FindPurse(style: string, color: string, brand: string) -> PurseReport {
+    artifact {
+        format = "json"
+        path   = "~/Desktop/purse-finds/${brand}-${color}-${style}.json"
+    }
+
+    // Step 1: search the web (uses the synthesized WebSearch TypeScript tool)
+    let search_result: SearchResult = execute Searcher.run(
+        task: "Find a ${color} ${style} purse by ${brand}",
+        require_type: SearchResult
+    )
+
+    // Step 2: reason about the result against the user's criteria
+    reason {
+        using:       Analyst
+        input:       search_result
+        goal:        "Evaluate this product against these criteria: style=${style}, color=${color}, brand=${brand}. How well does it match? Give a verdict and recommendation."
+        output_type: PurseReport
+        bind:        result
+    }
+
+    return result
+}

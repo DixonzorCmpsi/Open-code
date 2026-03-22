@@ -1,0 +1,111 @@
+// examples/image_finder.claw
+// Search for a product image, download it, and save a report.
+//
+// Run:
+//   claw build --lang python examples/image_finder.claw
+//   python3 examples/generated/claw/__init__.py FindProductImage \
+//     --arg query="Coach tan tote bag" \
+//     --arg filename="coach-tan-tote"
+//
+// Artifacts:
+//   ~/Desktop/product-images/<filename>.json  (report)
+
+type SearchResult {
+    url: string
+    snippet: string
+    confidence_score: float
+}
+
+type ImageDownload {
+    url: string
+    path: string
+    filename: string
+    mime_type: string
+    size_bytes: int
+    success: string
+}
+
+type ImageReport {
+    query: string
+    image_url: string
+    local_path: string
+    verdict: string
+    recommendation: string
+}
+
+// Web search — finds image URLs
+tool WebSearch(query: string) -> SearchResult {
+    invoke: module("scripts/search").function("run")
+}
+
+// Image downloader — saves binary to local disk
+tool FetchImage(url: string, dest_dir: string) -> ImageDownload {
+    invoke: module("scripts/fetch_image").function("run")
+}
+
+client LocalQwen {
+    provider = "local"
+    model = "local.qwen2.5:14b"
+}
+
+// Finds the best direct image URL for a product
+agent Searcher {
+    client = LocalQwen
+    system_prompt = "You are a product image search assistant. Use WebSearch to find a direct image URL (.jpg, .png, .webp) for the product. Return ONLY valid JSON with fields: url (direct image URL), snippet (description), confidence_score (float 0-1). No other text."
+    tools = [WebSearch]
+    settings = {
+        max_steps: 5,
+        temperature: 0.0
+    }
+}
+
+// Downloads the image to disk
+agent Downloader {
+    client = LocalQwen
+    system_prompt = "You are an image downloader. You receive an image URL and destination directory. Use FetchImage to download it. Return the FetchImage result as-is as valid JSON. No other text."
+    tools = [FetchImage]
+    settings = {
+        max_steps: 2,
+        temperature: 0.0
+    }
+}
+
+// Writes the final report
+agent Analyst {
+    client = LocalQwen
+    system_prompt = "You are a product image analyst. Given download context, write a brief report. Return ONLY valid JSON with fields: query (string), image_url (string), local_path (string), verdict (one sentence), recommendation (one sentence). No other text."
+    settings = {
+        max_steps: 2,
+        temperature: 0.2
+    }
+}
+
+workflow FindProductImage(query: string, filename: string) -> ImageReport {
+    artifact {
+        format = "json"
+        path   = "~/Desktop/product-images/${filename}.json"
+    }
+
+    // Step 1: find an image URL
+    let search_result: SearchResult = execute Searcher.run(
+        task: "Find a direct product image URL (.jpg/.png/.webp) for: ${query}",
+        require_type: SearchResult
+    )
+
+    // Step 2: download the image
+    let image: ImageDownload = execute Downloader.run(
+        task: "Download image from URL: ${search_result.url} to dest_dir: ~/Desktop/product-images",
+        require_type: ImageDownload
+    )
+
+    // Step 3: write a report about what was found and downloaded
+    reason {
+        using:       Analyst
+        input:       image
+        goal:        "Write a report about this downloaded product image for query: ${query}. The image_url should be set to the url field and local_path to the path field from the context."
+        output_type: ImageReport
+        bind:        result
+    }
+
+    return result
+}

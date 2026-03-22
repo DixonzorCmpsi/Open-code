@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::{
     AgentDecl, BinaryOp, Block, DataType, Document, ElseBranch, Expr, MockDecl, Span,
-    SpannedExpr, Statement, TestDecl, TypeField, WorkflowDecl,
+    SpannedExpr, Statement, TestDecl, TypeDecl, TypeField, WorkflowDecl,
 };
 use crate::errors::CompilerError;
 
@@ -107,6 +107,7 @@ pub(crate) fn validate_types_collecting(
 
     for workflow in &document.workflows {
         validate_workflow_types_collecting(workflow, symbols, &mut errors);
+        validate_workflow_artifact_collecting(workflow, document, &mut errors);
     }
 
     for listener in &document.listeners {
@@ -392,6 +393,17 @@ fn validate_expr_references_collecting(
             symbols,
             errors,
         ),
+        Expr::DirectToolCall { tool_name, args } => {
+            if !symbols.has_tool(tool_name) {
+                errors.push(CompilerError::UndefinedTool {
+                    name: tool_name.clone(),
+                    span: span.clone(),
+                });
+            }
+            for (_, value) in args {
+                validate_spanned_expr_references_collecting(value, symbols, errors);
+            }
+        }
         Expr::BinaryOp { left, right, .. } => {
             validate_spanned_expr_references_collecting(left, symbols, errors);
             validate_spanned_expr_references_collecting(right, symbols, errors);
@@ -457,6 +469,54 @@ fn validate_workflow_types_collecting(
         context,
         errors,
     );
+}
+
+/// G6: For `artifact { format = "image" }`, verify the workflow's return type
+/// is a custom type that has a `path: string` field. Emits `InvalidArtifact` if not.
+fn validate_workflow_artifact_collecting(
+    workflow: &WorkflowDecl,
+    document: &Document,
+    errors: &mut Vec<CompilerError>,
+) {
+    let artifact = match &workflow.artifact {
+        Some(a) => a,
+        None => return,
+    };
+
+    if artifact.format != "image" {
+        return;
+    }
+
+    // Must have a custom return type
+    let type_name = match &workflow.return_type {
+        Some(DataType::Custom(name, _)) => name.clone(),
+        _ => {
+            errors.push(CompilerError::InvalidArtifact {
+                message: format!(
+                    "workflow '{}': artifact format = \"image\" requires a custom return type with a `path: string` field",
+                    workflow.name
+                ),
+                span: artifact.span.clone(),
+            });
+            return;
+        }
+    };
+
+    // That custom type must have `path: string`
+    let type_decl: Option<&TypeDecl> = document.types.iter().find(|t| t.name == type_name);
+    let has_path_field = type_decl.map_or(false, |td| {
+        td.fields.iter().any(|f| f.name == "path" && matches!(f.data_type, DataType::String(_)))
+    });
+
+    if !has_path_field {
+        errors.push(CompilerError::InvalidArtifact {
+            message: format!(
+                "workflow '{}': artifact format = \"image\" requires return type '{}' to have a `path: string` field (the local file path written by the image tool)",
+                workflow.name, type_name
+            ),
+            span: artifact.span.clone(),
+        });
+    }
 }
 
 fn seed_workflow_env(workflow: &WorkflowDecl, symbols: &SymbolTable) -> TypeEnv {
@@ -751,6 +811,13 @@ fn infer_expr_type_collecting(
             env,
             errors,
         ),
+        Expr::DirectToolCall { tool_name: _, args } => {
+            for (_, value) in args {
+                infer_expr_type_collecting(value, symbols, env, errors);
+            }
+            // Return type is unknown at compile time (depends on tool declaration)
+            None
+        }
         Expr::BinaryOp { left, op, right } => {
             infer_binary_operand_types_collecting(left, op, right, &spanned.span, symbols, env, errors);
             Some(TypeShape::Boolean)

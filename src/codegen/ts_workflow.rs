@@ -53,10 +53,16 @@ fn emit_workflow(w: &WorkflowDecl, document: &crate::ast::Document) -> String {
         out.push_str(&format!("import {{ {} }} from '../tools/{}.js';\n", tool, tool));
     }
 
-    // Collect agent imports for reason{} blocks
+    // Collect agents used in reason{} blocks — all route through runtime/reason.ts,
+    // not per-agent module files (which don't exist). C-01 fix from spec 47.
     let used_agents = collect_used_agents(&w.body);
-    for agent in &used_agents {
-        out.push_str(&format!("import {{ {} }} from '../agents/{}.js';\n", agent, agent));
+    if !used_agents.is_empty() {
+        let has_resynth = has_resynthesize_strategy(&w.body);
+        if has_resynth {
+            out.push_str("import { reason, judgeReason, clawReSynthesize } from '../runtime/reason.js';\n");
+        } else {
+            out.push_str("import { reason, judgeReason } from '../runtime/reason.js';\n");
+        }
     }
 
     // Type imports
@@ -69,7 +75,7 @@ fn emit_workflow(w: &WorkflowDecl, document: &crate::ast::Document) -> String {
     out.push('\n');
 
     // Input type
-    let input_type = if w.arguments.is_empty() {
+    let _input_type = if w.arguments.is_empty() {
         "{}".to_owned()
     } else {
         let fields: Vec<String> = w.arguments.iter()
@@ -123,13 +129,53 @@ fn emit_statement_ts(out: &mut String, stmt: &Statement, indent: usize) {
             let args = emit_kwargs_ts(kwargs);
             out.push_str(&format!("{}await {}({});\n", pad, agent_name, args));
         }
-        Statement::Reason { using_agent, input, goal, bind, output_type, .. } => {
-            // reason{} generates a runtime LLM call via the runtime/reason module
+        Statement::Reason { using_agent, input, goal, bind, output_type, on_fail, .. } => {
             let out_type = data_type_to_ts(output_type);
-            out.push_str(&format!(
-                "{}const {} = await {}.reason<{}>({{ input: {}, goal: {:?} }});\n",
-                pad, bind, using_agent, out_type, input, goal,
-            ));
+            match on_fail {
+                Some(crate::ast::OnFailStrategy::Retry { max }) => {
+                    // Emit a retry loop: judge the output; on rejection, re-run up to max times.
+                    out.push_str(&format!(
+                        "{pad}let {bind}: {out_type} | undefined;\n"
+                    ));
+                    out.push_str(&format!(
+                        "{pad}for (let _attempt = 0; _attempt < {max}; _attempt++) {{\n"
+                    ));
+                    out.push_str(&format!(
+                        "{pad}  const _candidate = await reason<{out_type}>({{ agent: \"{using_agent}\", input: {input}, goal: {goal:?} }});\n"
+                    ));
+                    out.push_str(&format!(
+                        "{pad}  const _ok = await judgeReason({{ agent: \"{using_agent}\", result: _candidate, goal: {goal:?} }});\n"
+                    ));
+                    out.push_str(&format!(
+                        "{pad}  if (_ok) {{ {bind} = _candidate; break; }}\n"
+                    ));
+                    out.push_str(&format!("{pad}}}\n"));
+                    out.push_str(&format!(
+                        "{pad}if ({bind} === undefined) throw new Error('reason: goal not achieved after {max} attempts: {goal}');\n"
+                    ));
+                }
+                Some(crate::ast::OnFailStrategy::ReSynthesize) => {
+                    // Judge first; if rejected, invoke claw synthesize and retry once.
+                    out.push_str(&format!(
+                        "{pad}let {bind} = await reason<{out_type}>({{ agent: \"{using_agent}\", input: {input}, goal: {goal:?} }});\n"
+                    ));
+                    out.push_str(&format!(
+                        "{pad}if (!await judgeReason({{ agent: \"{using_agent}\", result: {bind}, goal: {goal:?} }})) {{\n"
+                    ));
+                    out.push_str(&format!(
+                        "{pad}  await clawReSynthesize();\n"
+                    ));
+                    out.push_str(&format!(
+                        "{pad}  {bind} = await reason<{out_type}>({{ agent: \"{using_agent}\", input: {input}, goal: {goal:?} }});\n"
+                    ));
+                    out.push_str(&format!("{pad}}}\n"));
+                }
+                None => {
+                    out.push_str(&format!(
+                        "{pad}const {bind} = await reason<{out_type}>({{ agent: \"{using_agent}\", input: {input}, goal: {goal:?} }});\n",
+                    ));
+                }
+            }
         }
         Statement::IfCond { condition, if_body, else_body, .. } => {
             let cond = emit_expr_ts(&condition.expr);
@@ -211,6 +257,13 @@ fn emit_expr_ts(expr: &Expr) -> String {
         }
         Expr::ExecuteRun { agent_name, kwargs, .. } => {
             emit_kwargs_call(agent_name, kwargs)
+        }
+        Expr::DirectToolCall { tool_name, args } => {
+            let entries: Vec<String> = args
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", emit_expr_ts(&v.expr)))
+                .collect();
+            format!("callTool_{tool_name}({{{}}})", entries.join(", "))
         }
         Expr::BinaryOp { left, op, right } => {
             use crate::ast::BinaryOp;
@@ -323,6 +376,17 @@ fn collect_agents_from_block(block: &Block, agents: &mut Vec<String>) {
             agents.push(using_agent.clone());
         }
     }
+}
+
+/// Returns true if any reason{} block in this workflow uses `on_fail: re_synthesize`,
+/// which requires `clawReSynthesize` to be imported.
+fn has_resynthesize_strategy(block: &Block) -> bool {
+    block.statements.iter().any(|stmt| {
+        matches!(
+            stmt,
+            Statement::Reason { on_fail: Some(crate::ast::OnFailStrategy::ReSynthesize), .. }
+        )
+    })
 }
 
 fn collect_type_refs(w: &WorkflowDecl, document: &crate::ast::Document) -> Vec<String> {

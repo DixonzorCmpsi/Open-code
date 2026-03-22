@@ -101,6 +101,9 @@ pub struct ToolDecl {
     pub using: Option<UsingExpr>,
     pub synthesizer: Option<String>,
     pub test_block: Option<TestBlock>,
+    /// Env var names the synthesized implementation requires (e.g. ["GOOGLE_API_KEY"]).
+    /// Declared with `secrets { KEY1 KEY2 }` inside the tool body.
+    pub secrets: Vec<String>,
     pub span: Span,
 }
 
@@ -145,11 +148,22 @@ pub struct AgentDecl {
 
 // --- Execution Workflows ---
 
+/// Artifact placement spec — declared inside a workflow to save output to a file.
+/// `format` = "json" | "markdown" | "text" | "html"
+/// `path`   = file path, supports `~` and `${arg_name}` interpolation
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ArtifactSpec {
+    pub format: String,
+    pub path: String,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WorkflowDecl {
     pub name: String,
     pub arguments: Vec<TypeField>,
     pub return_type: Option<DataType>,
+    pub artifact: Option<ArtifactSpec>,
     pub body: Block,
     pub span: Span,
 }
@@ -184,6 +198,15 @@ pub enum ElseBranch {
 
 // --- Statements ---
 
+/// What to do when a `reason {}` block evaluates the synthesized tool output and decides it
+/// does not meet the goal. `Retry { max }` re-runs the same code up to `max` times.
+/// `ReSynthesize` triggers a new synthesis pass before the next attempt.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum OnFailStrategy {
+    Retry { max: u32 },
+    ReSynthesize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Statement {
     Reason {
@@ -192,6 +215,8 @@ pub enum Statement {
         goal: String,
         output_type: DataType,
         bind: String,
+        /// Optional fallback strategy if the LLM judges the output unacceptable.
+        on_fail: Option<OnFailStrategy>,
         span: Span,
     },
     LetDecl {
@@ -264,6 +289,12 @@ pub enum Expr {
         agent_name: String,
         kwargs: Vec<(String, SpannedExpr)>,
         require_type: Option<DataType>,
+    },
+    /// Direct deterministic tool invocation — `call ToolName(arg: val, ...)`.
+    /// Bypasses any LLM; the tool's `invoke:` handler is called directly.
+    DirectToolCall {
+        tool_name: String,
+        args: Vec<(String, SpannedExpr)>,
     },
     BinaryOp {
         left: Box<SpannedExpr>,

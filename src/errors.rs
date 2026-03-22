@@ -58,6 +58,9 @@ pub enum CompilerError {
 
     #[error("circular agent extends: {agent_name}")]
     CircularAgentExtends { agent_name: String, span: Span },
+
+    #[error("invalid artifact: {message}")]
+    InvalidArtifact { message: String, span: Span },
 }
 
 impl CompilerError {
@@ -80,7 +83,8 @@ impl CompilerError {
             | Self::InvalidConstraintValue { span, .. }
             | Self::BamlSignatureConflict { span, .. }
             | Self::CircularType { span, .. }
-            | Self::CircularAgentExtends { span, .. } => Some(span),
+            | Self::CircularAgentExtends { span, .. }
+            | Self::InvalidArtifact { span, .. } => Some(span),
         }
     }
 }

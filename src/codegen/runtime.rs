@@ -308,17 +308,28 @@ fn emit_plans(document: &Document) -> String {
 
         let steps = compile_steps(&wf.body);
 
+        let artifact_entry = if let Some(art) = &wf.artifact {
+            format!(
+                ",\n    artifact: {{ format: \"{fmt}\", path: \"{path}\" }}",
+                fmt = art.format,
+                path = art.path.replace('\\', "\\\\").replace('"', "\\\""),
+            )
+        } else {
+            String::new()
+        };
+
         entries.push(format!(
             r#"  {name}: {{
     name: "{name}",
     requiredArgs: [{req}],
     returnType: {ret},
-    steps: {steps}
+    steps: {steps}{artifact}
   }}"#,
-            name  = wf.name,
-            req   = req_args.join(", "),
-            ret   = return_type,
-            steps = steps,
+            name     = wf.name,
+            req      = req_args.join(", "),
+            ret      = return_type,
+            steps    = steps,
+            artifact = artifact_entry,
         ));
     }
     if entries.is_empty() {
@@ -509,6 +520,8 @@ async function executeWorkflow(planName, args) {
 
   const scope = { ...args };
 
+  let returnValue = null;
+
   for (const step of plan.steps) {
     if (step.type === "execute_agent") {
       const task = interpolate(step.taskTemplate, scope);
@@ -519,11 +532,222 @@ async function executeWorkflow(planName, args) {
     } else if (step.type === "let") {
       scope[step.bind] = step.value;
     } else if (step.type === "return") {
-      return resolveValue(step.value, scope);
+      returnValue = resolveValue(step.value, scope);
+      break;
     }
   }
 
-  return null;
+  if (plan.artifact && returnValue !== null) {
+    await saveArtifact(returnValue, plan.artifact.format, plan.artifact.path, args);
+  }
+
+  return returnValue;
+}
+
+// ── Artifact field-convention resolver (Spec 50 §3) ──────────────────────────
+function artifactField(result, ...names) {
+  if (!result || typeof result !== "object") return undefined;
+  for (const n of names) if (n in result) return result[n];
+  return undefined;
+}
+
+function artifactTitle(r)    { return artifactField(r, "title", "name", "heading") ?? "Untitled"; }
+function artifactSummary(r)  { return artifactField(r, "summary", "description", "abstract", "subtitle") ?? ""; }
+function artifactSections(r) {
+  const v = artifactField(r, "sections", "content", "body", "paragraphs", "slides", "items", "chapters");
+  if (Array.isArray(v)) return v.map(String);
+  if (typeof v === "string") return [v];
+  return [];
+}
+function artifactTags(r)     {
+  const v = artifactField(r, "tags", "labels", "keywords", "categories");
+  if (Array.isArray(v)) return v.map(String);
+  return [];
+}
+function artifactAuthor(r)   { return artifactField(r, "author", "by", "creator") ?? ""; }
+
+// CSV injection guard (Spec 50 §4.6)
+function csvEscape(v) {
+  const s = String(v ?? "");
+  const dangerous = /^[=+\-@]/.test(s);
+  const needsQuote = /[,"\n\r]/.test(s) || dangerous;
+  if (!needsQuote) return s;
+  return `"${(dangerous ? "'" + s : s).replace(/"/g, '""')}"`;
+}
+
+async function saveArtifact(result, format, rawPath, args) {
+  const os = await import("node:os");
+  const home = os.default?.homedir?.() ?? process.env.HOME ?? "~";
+  let expanded = rawPath.replace(/^~/, home);
+  expanded = expanded.replace(/\$\{(\w+)\}/g, (_, k) => args[k] ?? "");
+  const absPath = path.resolve(expanded);
+  await fs.mkdir(path.dirname(absPath), { recursive: true });
+
+  if (format === "pptx") {
+    // ── PPTX (Spec 50 §4.6) — requires: npm install pptxgenjs ────────────────
+    let PptxGenJS;
+    try {
+      ({ default: PptxGenJS } = await import("pptxgenjs"));
+    } catch {
+      process.stderr.write(JSON.stringify({
+        error: "pptxgenjs not installed — run: npm install pptxgenjs",
+        code: "E-ART02"
+      }) + "\n");
+      process.exit(4);
+    }
+    const pptx = new PptxGenJS();
+    pptx.layout = "LAYOUT_WIDE";
+    const title   = artifactTitle(result);
+    const summary = artifactSummary(result);
+    const sections = artifactSections(result).slice(0, 50);
+    const tags    = artifactTags(result);
+    const author  = artifactAuthor(result);
+
+    // Title slide
+    const s0 = pptx.addSlide();
+    s0.background = { color: "1a1a2e" };
+    s0.addText(title,   { x: 0.5, y: 1.5, w: 12, h: 1.2, fontSize: 40, bold: true, color: "ffffff", align: "center" });
+    if (summary) s0.addText(summary, { x: 0.5, y: 3.0, w: 12, h: 1.5, fontSize: 18, color: "ccccff", align: "center", wrap: true });
+    if (author)  s0.addText(author,  { x: 0.5, y: 5.8, w: 12, h: 0.4, fontSize: 13, color: "888888", align: "center" });
+
+    // Content slides
+    sections.forEach((text, i) => {
+      const s = pptx.addSlide();
+      s.background = { color: "0f0f23" };
+      s.addText(`${i + 1} / ${sections.length}`, { x: 0.4, y: 0.2, w: 12, h: 0.35, fontSize: 11, color: "555577", align: "left" });
+      s.addText(title, { x: 0.4, y: 0.55, w: 12, h: 0.45, fontSize: 14, bold: true, color: "8888cc" });
+      s.addText(text,  { x: 0.6, y: 1.2,  w: 11.8, h: 4.8, fontSize: 20, color: "e8e8ff", wrap: true, valign: "top" });
+    });
+
+    // Tags slide
+    if (tags.length) {
+      const st = pptx.addSlide();
+      st.background = { color: "1a1a2e" };
+      st.addText("Topics", { x: 0.5, y: 1.2, w: 12, h: 0.8, fontSize: 32, bold: true, color: "ffffff", align: "center" });
+      st.addText(tags.join("  ·  "), { x: 0.5, y: 2.5, w: 12, h: 1.0, fontSize: 20, color: "aaaadd", align: "center" });
+    }
+
+    const buf = await pptx.write({ outputType: "nodebuffer" });
+    await fs.writeFile(absPath, buf);
+
+  } else if (format === "slides") {
+    // ── Reveal.js HTML slides (Spec 50 §4.4) — zero deps ─────────────────────
+    const title    = artifactTitle(result);
+    const summary  = artifactSummary(result);
+    const sections = artifactSections(result);
+    const tags     = artifactTags(result);
+    const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const sectionSlides = sections.map(s =>
+      `<section><p style="font-size:1.4em;line-height:1.6">${esc(s)}</p></section>`
+    ).join("\n");
+    const tagsSlide = tags.length
+      ? `<section><h2>Topics</h2><p style="font-size:1.2em;color:#aad">${tags.map(esc).join(" &middot; ")}</p></section>`
+      : "";
+    const content = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${esc(title)}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reset.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/theme/night.css">
+</head>
+<body>
+<div class="reveal"><div class="slides">
+<section>
+  <h1 style="font-size:1.8em">${esc(title)}</h1>
+  ${summary ? `<p style="font-size:1em;color:#aad">${esc(summary)}</p>` : ""}
+</section>
+${sectionSlides}
+${tagsSlide}
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script>Reveal.initialize({ hash: true, transition: "slide" });</script>
+</body>
+</html>`;
+    await fs.writeFile(absPath, content, "utf8");
+
+  } else if (format === "html") {
+    // ── Self-contained HTML page (Spec 50 §4.3) ──────────────────────────────
+    const title    = artifactTitle(result);
+    const summary  = artifactSummary(result);
+    const sections = artifactSections(result);
+    const tags     = artifactTags(result);
+    const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const sectionHTML = sections.length
+      ? sections.map((s, i) => `<section><h2>${i + 1}.</h2><p>${esc(s)}</p></section>`).join("\n")
+      : `<pre>${esc(JSON.stringify(result, null, 2))}</pre>`;
+    const content = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 780px; margin: 3rem auto; padding: 0 1.5rem; line-height: 1.7; color: #1a1a2e; background: #f8f8ff; }
+  h1   { font-size: 2rem; margin-bottom: 0.25em; }
+  .summary { color: #444; font-size: 1.05rem; margin-bottom: 2rem; }
+  section { margin: 2rem 0; padding: 1.25rem 1.5rem; background: #fff; border-left: 4px solid #5555cc; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  section h2 { font-size: 1rem; color: #5555cc; margin: 0 0 0.5em; }
+  footer { margin-top: 3rem; font-size: 0.85rem; color: #888; }
+  .tag { display: inline-block; background: #eeeeff; color: #5555cc; border-radius: 3px; padding: 2px 8px; margin: 2px; }
+</style>
+</head>
+<body>
+<h1>${esc(title)}</h1>
+${summary ? `<p class="summary">${esc(summary)}</p>` : ""}
+${sectionHTML}
+${tags.length ? `<footer>Tags: ${tags.map(t => `<span class="tag">${esc(t)}</span>`).join(" ")}</footer>` : ""}
+</body>
+</html>`;
+    await fs.writeFile(absPath, content, "utf8");
+
+  } else if (format === "markdown" || format === "md") {
+    // ── Markdown (Spec 50 §4.2) ───────────────────────────────────────────────
+    const title    = artifactTitle(result);
+    const summary  = artifactSummary(result);
+    const sections = artifactSections(result);
+    const tags     = artifactTags(result);
+    const lines = [`# ${title}`, ""];
+    if (summary) { lines.push(summary, ""); }
+    sections.forEach((s, i) => { lines.push(`## ${i + 1}. `, "", s, ""); });
+    if (tags.length) { lines.push("---", "", `**Tags:** ${tags.join(", ")}`); }
+    await fs.writeFile(absPath, lines.join("\n"), "utf8");
+
+  } else if (format === "csv") {
+    // ── CSV (Spec 50 §4.5) ────────────────────────────────────────────────────
+    let content;
+    if (result && typeof result === "object") {
+      const keys = Object.keys(result);
+      // If any field is a flat string array, emit one column per entry
+      const arrayKey = keys.find(k => Array.isArray(result[k]) && result[k].every(v => typeof v === "string"));
+      if (arrayKey) {
+        content = [csvEscape(arrayKey), ...result[arrayKey].map(csvEscape)].join("\n");
+      } else {
+        const header = keys.map(csvEscape).join(",");
+        const row    = keys.map(k => {
+          const v = result[k];
+          return csvEscape(Array.isArray(v) ? JSON.stringify(v) : v);
+        }).join(",");
+        content = header + "\n" + row;
+      }
+    } else {
+      content = csvEscape(result);
+    }
+    await fs.writeFile(absPath, content, "utf8");
+
+  } else if (format === "text" || format === "txt") {
+    // ── Plain text (Spec 50 §4.7) ─────────────────────────────────────────────
+    const v = artifactField(result, "summary", "content", "body", "text", "message");
+    const content = v ? String(v) : Object.values(result ?? {}).filter(v => typeof v === "string").join("\n\n") || JSON.stringify(result, null, 2);
+    await fs.writeFile(absPath, content, "utf8");
+
+  } else {
+    // json (default, Spec 50 §4.1)
+    await fs.writeFile(absPath, JSON.stringify(result, null, 2), "utf8");
+  }
+
+  process.stderr.write(`[claw] artifact saved → ${absPath}\n`);
 }
 
 "#;
